@@ -3,27 +3,27 @@ using UnityEngine;
 [RequireComponent(typeof(Camera))]
 public class JuicyFlightCamera : MonoBehaviour
 {
-    [Header("Target Tracking")]
+    [Header("Target Tracking (Dead-Center Behind Jet)")]
     [Tooltip("Assign Jetpack_Vehicle here.")]
     public Transform target;
     [Tooltip("Assign Jetpack_Vehicle here.")]
     public JetpackFlightController flightController;
 
-    [Header("Positioning Behind Jet")]
-    [Tooltip("Distance behind the jetpack.")]
-    public float distance = 4.8f;
-    [Tooltip("Height above the jetpack.")]
-    public float height = 1.6f;
-    [Tooltip("Smooth follow catch-up speed.")]
-    public float followSpeed = 16f;
+    [Header("Centered Camera Alignment (No Offset)")]
+    [Tooltip("Distance directly behind the jetpack.")]
+    public float distance = 4.2f;
+    [Tooltip("Height aligned right with the jetpack center.")]
+    public float height = 0.9f;
+    [Tooltip("Follow speed: 20 gives tight, razor-sharp tracking.")]
+    public float followSpeed = 20f;
 
-    [Header("Mouse Aim Steering Cone")]
+    [Header("Forward Corridor Aim Cone")]
     [Tooltip("Base track heading (0 = Facing Z-axis forward).")]
     public float corridorBaseYaw = 0f;
-    [Tooltip("Max degrees you can aim left/right.")]
-    public float maxAimYawCone = 30f;
-    [Tooltip("Max degrees you can aim up/down.")]
-    public float maxAimPitchCone = 20f;
+    [Tooltip("Max degrees to steer left/right.")]
+    public float maxAimYawCone = 25f;
+    [Tooltip("Max degrees to steer up/down.")]
+    public float maxAimPitchCone = 14f;
     public float mouseSensitivity = 2.5f;
 
     [Header("Speed Juice (Dynamic FOV)")]
@@ -86,10 +86,12 @@ public class JuicyFlightCamera : MonoBehaviour
 
     private void UpdateCameraPosition()
     {
+        // Pure forward aim rotation with zero horizontal offset
         Quaternion aimRotation = Quaternion.Euler(currentAimPitch, corridorBaseYaw + currentAimYaw, 0f);
 
-        Vector3 targetPivot = target.position + (Vector3.up * height);
-        Vector3 desiredPosition = targetPivot - (aimRotation * Vector3.forward * distance);
+        // Position directly behind the jetpack center
+        Vector3 targetCenter = target.position + (Vector3.up * height);
+        Vector3 desiredPosition = targetCenter - (aimRotation * Vector3.forward * distance);
 
         transform.position = Vector3.Lerp(transform.position, desiredPosition, followSpeed * Time.deltaTime);
         transform.rotation = aimRotation;

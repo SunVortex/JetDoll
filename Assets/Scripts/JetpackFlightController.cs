@@ -7,21 +7,29 @@ public class JetpackFlightController : MonoBehaviour
     [Tooltip("The camera that defines forward aim.")]
     public Transform cameraTransform;
 
+    [Header("Direct Speed Controls (Tunable in Inspector)")]
+    [Tooltip("Top flight speed (m/s) when holding RMB + W.")]
+    [Range(10f, 80f)]
+    public float maxBoostSpeed = 35f;
+
+    [Tooltip("Gentle cruise speed (m/s) when holding ONLY RMB.")]
+    [Range(2f, 25f)]
+    public float idleCruiseSpeed = 10f;
+
+    [Tooltip("How fast the jetpack reaches top speed (responsiveness).")]
+    public float boostAcceleration = 22f;
+
+    [Tooltip("Sideways strafe speed (m/s) with A & D.")]
+    [Range(5f, 35f)]
+    public float strafeSpeed = 14f;
+
     [Header("Corridor Altitude Lock")]
     [Tooltip("Target cruise height above the floor (meters).")]
     public float cruiseAltitude = 3.0f;
     [Tooltip("Maximum ceiling (stops you from flying over corridor walls).")]
     public float maxCeilingHeight = 4.5f;
-    [Tooltip("Vertical climb speed to reach cruise altitude.")]
+    [Tooltip("Climb speed to reach cruise altitude.")]
     public float climbSpeed = 6.0f;
-
-    [Header("Thrust & Speeds")]
-    [Tooltip("Forward thrust during RMB + W.")]
-    public float boostThrust = 110f;
-    [Tooltip("Slow cruise speed during ONLY RMB.")]
-    public float idleDriftThrust = 25f;
-    [Tooltip("Sideways strafe speed with A & D.")]
-    public float strafeThrust = 55f;
 
     [Header("Snap A/D Banking & Mouse Steering")]
     [Tooltip("How fast the jetpack snaps to face your mouse crosshair.")]
@@ -118,7 +126,6 @@ public class JetpackFlightController : MonoBehaviour
         float targetPitch = wKey ? flightPitch : 25f;
         currentPitch = Mathf.Lerp(currentPitch, targetPitch, 8f * Time.fixedDeltaTime);
 
-        // Roll into the turn (A = roll left, D = roll right)
         float targetBank = -hInput * bankAngle;
         currentBank = Mathf.Lerp(currentBank, targetBank, bankSnapSpeed * Time.fixedDeltaTime);
 
@@ -127,12 +134,10 @@ public class JetpackFlightController : MonoBehaviour
         Vector3 horizontalForward = Vector3.ProjectOnPlane(rawAim, Vector3.up).normalized;
         Vector3 horizontalRight = Vector3.ProjectOnPlane(cameraTransform != null ? cameraTransform.right : Vector3.right, Vector3.up).normalized;
 
-        // Combine forward aim + pitch dive + roll banking
         Quaternion aimRotation = Quaternion.LookRotation(horizontalForward, Vector3.up);
         Quaternion stanceRotation = Quaternion.Euler(currentPitch, 0f, currentBank);
         Quaternion finalTargetRot = aimRotation * stanceRotation;
 
-        // Instant snappy rotation to mouse heading
         jetRb.MoveRotation(Quaternion.Slerp(jetRb.rotation, finalTargetRot, mouseTurnSpeed * Time.fixedDeltaTime));
 
         // 5. CORRIDOR ALTITUDE LOCK
@@ -145,24 +150,36 @@ public class JetpackFlightController : MonoBehaviour
         }
         else if (currentHeightAboveFloor > maxCeilingHeight)
         {
-            targetYVelocity = -climbSpeed; // Hold inside the corridor walls
+            targetYVelocity = -climbSpeed;
         }
         else
         {
-            targetYVelocity = 0f; // Firm hover
+            targetYVelocity = 0f; // Firm level hover
         }
 
-        SetVerticalVelocity(jetRb, targetYVelocity);
+        // 6. DIRECT VELOCITY SPEED CONTROL (Predictable & Tunable!)
+        float targetSpeed = wKey ? maxBoostSpeed : idleCruiseSpeed;
+        Vector3 targetHorizontalVelocity = (horizontalForward * targetSpeed) + (horizontalRight * (hInput * strafeSpeed));
 
-        // 6. FORWARD PROPULSION
-        float forwardPush = wKey ? boostThrust : idleDriftThrust;
-        jetRb.AddForce(horizontalForward * forwardPush, ForceMode.Acceleration);
+#if UNITY_6000_0_OR_NEWER
+        Vector3 currentVel = jetRb.linearVelocity;
+        Vector3 currentHorizontal = new Vector3(currentVel.x, 0f, currentVel.z);
+        Vector3 smoothedHorizontal = Vector3.MoveTowards(currentHorizontal, targetHorizontalVelocity, boostAcceleration * Time.fixedDeltaTime);
 
-        // 7. LATERAL STRAFE (A & D)
-        if (Mathf.Abs(hInput) > 0.05f)
-        {
-            jetRb.AddForce(horizontalRight * (hInput * strafeThrust), ForceMode.Acceleration);
-        }
+        currentVel.x = smoothedHorizontal.x;
+        currentVel.z = smoothedHorizontal.z;
+        currentVel.y = Mathf.MoveTowards(currentVel.y, targetYVelocity, 35f * Time.fixedDeltaTime);
+        jetRb.linearVelocity = currentVel;
+#else
+        Vector3 currentVel = jetRb.velocity;
+        Vector3 currentHorizontal = new Vector3(currentVel.x, 0f, currentVel.z);
+        Vector3 smoothedHorizontal = Vector3.MoveTowards(currentHorizontal, targetHorizontalVelocity, boostAcceleration * Time.fixedDeltaTime);
+
+        currentVel.x = smoothedHorizontal.x;
+        currentVel.z = smoothedHorizontal.z;
+        currentVel.y = Mathf.MoveTowards(currentVel.y, targetYVelocity, 35f * Time.fixedDeltaTime);
+        jetRb.velocity = currentVel;
+#endif
     }
 
     private void SetRagdollGravity(bool useGravity)
@@ -176,19 +193,6 @@ public class JetpackFlightController : MonoBehaviour
                 pilotRagdollRbs[i].useGravity = useGravity;
             }
         }
-    }
-
-    private void SetVerticalVelocity(Rigidbody rb, float targetY)
-    {
-#if UNITY_6000_0_OR_NEWER
-        Vector3 vel = rb.linearVelocity;
-        vel.y = Mathf.MoveTowards(vel.y, targetY, 35f * Time.fixedDeltaTime);
-        rb.linearVelocity = vel;
-#else
-        Vector3 vel = rb.velocity;
-        vel.y = Mathf.MoveTowards(vel.y, targetY, 35f * Time.fixedDeltaTime);
-        rb.velocity = vel;
-#endif
     }
 
     private void ApplyDrag(float value)
