@@ -20,11 +20,11 @@ public class ProceduralStartWalk : MonoBehaviour
     [Tooltip("Upward lift to bend knees and clear feet off the floor.")]
     public float footLiftPower = 15f;
 
-    [Header("Juicy Step Bobbing (Up and Down Wobble)")]
-    [Tooltip("Height of the vertical body bobbing with each step (meters).")]
-    public float stepBobAmount = 0.07f;
-    [Tooltip("Speed of the vertical bobbing return.")]
-    public float bobSmoothSpeed = 14f;
+    [Header("Smooth Step Bobbing (Zero Jitter)")]
+    [Tooltip("Height of the vertical body bobbing with each step.")]
+    public float stepBobAmount = 0.06f;
+    [Tooltip("Stiffness of the vertical standing suspension.")]
+    public float standSuspensionStrength = 22f;
 
     [Header("Ledge / Ground Detection")]
     [Tooltip("Downward distance to detect the rooftop floor.")]
@@ -37,7 +37,6 @@ public class ProceduralStartWalk : MonoBehaviour
 
     private Rigidbody jetRb;
     private float baseStandingY = 0f;
-    private float currentBobOffset = 0f;
     private float strideTimer = 0f;
     private int offLedgeFrames = 0;
     private bool isWalking = false;
@@ -52,8 +51,9 @@ public class ProceduralStartWalk : MonoBehaviour
             flightController.enabled = false;
         }
 
-        // Native Y-Freeze: locks height from gravity collapse
-        jetRb.constraints = RigidbodyConstraints.FreezePositionY | RigidbodyConstraints.FreezeRotation;
+        // Freeze rotations so character stays strictly upright without tipping
+        jetRb.constraints = RigidbodyConstraints.FreezeRotation;
+        jetRb.useGravity = false;
     }
 
     private void Start()
@@ -92,24 +92,25 @@ public class ProceduralStartWalk : MonoBehaviour
             offLedgeFrames = 0;
         }
 
-        // 2. RUNWAY MOVEMENT, KNEE-DRIVE & STEP BOBBING
+        // 2. SMOOTH VELOCITY LOCOMOTION (Zero teleporting, zero vibration!)
         HandleRooftopMovement();
     }
 
     private void HandleRooftopMovement()
     {
+        // Calculate target standing height + step bob offset
+        float targetBob = 0f;
+        Vector3 forwardMove = Vector3.zero;
+
         if (isWalking)
         {
             // Advance stride cycle
             strideTimer += Time.fixedDeltaTime * stepFrequency;
             float stride = Mathf.Sin(strideTimer);
 
-            // CALCULATE VERTICAL BOBBING (Bobs up on midstance, dips on plant)
-            float targetBob = Mathf.Abs(Mathf.Sin(strideTimer)) * stepBobAmount;
-            currentBobOffset = Mathf.Lerp(currentBobOffset, targetBob, bobSmoothSpeed * Time.fixedDeltaTime);
-
-            // Forward movement along facing direction
-            Vector3 forwardMove = transform.forward * walkSpeed;
+            // Natural vertical bounce on each step
+            targetBob = Mathf.Abs(stride) * stepBobAmount;
+            forwardMove = transform.forward * walkSpeed;
 
             // KNEE-DRIVE ACTION (Bends knees and lifts feet)
             if (leftKneeRb != null)
@@ -127,57 +128,42 @@ public class ProceduralStartWalk : MonoBehaviour
                 Vector3 rightKick = (transform.forward * forwardForce) + (Vector3.up * liftForce);
                 rightKneeRb.AddForce(rightKick, ForceMode.Acceleration);
             }
-
-            // Apply forward velocity
-#if UNITY_6000_0_OR_NEWER
-            Vector3 vel = jetRb.linearVelocity;
-            vel.x = forwardMove.x;
-            vel.z = forwardMove.z;
-            jetRb.linearVelocity = vel;
-#else
-            Vector3 vel = jetRb.velocity;
-            vel.x = forwardMove.x;
-            vel.z = forwardMove.z;
-            jetRb.velocity = vel;
-#endif
-
-            // Apply vertical bobbing height cleanly
-            Vector3 bobbedPos = jetRb.position;
-            bobbedPos.y = baseStandingY + currentBobOffset;
-            jetRb.position = bobbedPos;
         }
         else
         {
-            // IDLE: Settle smoothly to base standing height
             strideTimer = 0f;
-            currentBobOffset = Mathf.Lerp(currentBobOffset, 0f, bobSmoothSpeed * Time.fixedDeltaTime);
-
-            Vector3 settledPos = jetRb.position;
-            settledPos.y = baseStandingY + currentBobOffset;
-            jetRb.position = settledPos;
+            targetBob = 0f;
 
             if (leftKneeRb != null) leftKneeRb.linearVelocity = Vector3.zero;
             if (rightKneeRb != null) rightKneeRb.linearVelocity = Vector3.zero;
-
-#if UNITY_6000_0_OR_NEWER
-            Vector3 vel = jetRb.linearVelocity;
-            vel.x = 0f;
-            vel.z = 0f;
-            jetRb.linearVelocity = vel;
-#else
-            Vector3 vel = jetRb.velocity;
-            vel.x = 0f;
-            vel.z = 0f;
-            jetRb.velocity = vel;
-#endif
         }
+
+        // SMOOTH VERTICAL VELOCITY SUSPENSION (Replaces teleportation!)
+        float targetY = baseStandingY + targetBob;
+        float heightDifference = targetY - transform.position.y;
+        float smoothVerticalVelocity = Mathf.Clamp(heightDifference * standSuspensionStrength, -4f, 4f);
+
+        // Apply velocities cleanly to the Rigidbody
+#if UNITY_6000_0_OR_NEWER
+        Vector3 vel = jetRb.linearVelocity;
+        vel.x = forwardMove.x;
+        vel.z = forwardMove.z;
+        vel.y = smoothVerticalVelocity;
+        jetRb.linearVelocity = vel;
+#else
+        Vector3 vel = jetRb.velocity;
+        vel.x = forwardMove.x;
+        vel.z = forwardMove.z;
+        vel.y = smoothVerticalVelocity;
+        jetRb.velocity = vel;
+#endif
     }
 
     private void LaunchIntoFlight()
     {
         HasLeftRooftop = true;
 
-        // UNFREEZE Y: Drops ragdoll naturally into freefall!
+        // Unfreeze constraints so the ragdoll is 100% free
         jetRb.constraints = RigidbodyConstraints.None;
 
         // Turn on the flight controller

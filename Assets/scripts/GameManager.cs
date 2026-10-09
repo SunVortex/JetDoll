@@ -13,16 +13,25 @@ public class GameManager : MonoBehaviour
     public bool isGameOver = false;
     public int framesPassed = 0;
 
-    void Awake()
+    private void Awake()
     {
-        if (Instance == null) Instance = this;
-        else Destroy(gameObject);
+        if (Instance == null)
+        {
+            Instance = this;
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
+
+        currentChances = maxChances;
     }
 
     public void OnFrameSuccess()
     {
         if (isGameOver) return;
         framesPassed++;
+        Debug.Log($"Frame Cleared! Total: {framesPassed}");
     }
 
     public void TakeDamage(string reason)
@@ -30,40 +39,57 @@ public class GameManager : MonoBehaviour
         if (isGameOver) return;
 
         currentChances--;
-        Debug.Log($"Damage: {reason} | Chances left: {currentChances}");
+        Debug.Log($"Damage Taken: {reason} | Remaining Chances: {currentChances}");
 
-        if (currentChances < 0)
+        if (currentChances <= 0)
         {
             TriggerGameOver();
         }
     }
 
-    void TriggerGameOver()
+    private void TriggerGameOver()
     {
         isGameOver = true;
 
-        PlayerFlightController player = FindAnyObjectByType<PlayerFlightController>();
+        // Cut flight engine and let the ragdoll tumble limp
+        JetpackFlightController player = FindAnyObjectByType<JetpackFlightController>();
         if (player != null)
         {
-            player.forwardSpeed = 0f;
             player.enabled = false;
+
+            Rigidbody rb = player.GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.useGravity = true;
+            }
         }
 
+        // Disable camera script to free up mouse for UI clicks
+        JuicyFlightCamera camScript = FindAnyObjectByType<JuicyFlightCamera>();
+        if (camScript != null)
+        {
+            camScript.enabled = false;
+        }
+
+        // Unlock mouse cursor for UI interaction
         Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
-    void OnGUI()
+    private void OnGUI()
     {
+        // 1. HUD: LIVES & SCORE
         GUIStyle heartStyle = new GUIStyle(GUI.skin.label);
-        heartStyle.fontSize = 24;
+        heartStyle.fontSize = 22;
         heartStyle.fontStyle = FontStyle.Bold;
         heartStyle.normal.textColor = Color.yellow;
 
         string hearts = "";
         for (int i = 0; i < Mathf.Max(0, currentChances); i++) hearts += " ♥ ";
-        GUI.Label(new Rect(30, 25, 300, 40), $"CHANCES: {hearts} ({Mathf.Max(0, currentChances)})", heartStyle);
-        GUI.Label(new Rect(30, 60, 300, 40), $"FRAMES CLEARED: {framesPassed}", heartStyle);
+        GUI.Label(new Rect(30, 25, 350, 35), $"CHANCES: {hearts} ({Mathf.Max(0, currentChances)})", heartStyle);
+        GUI.Label(new Rect(30, 55, 350, 35), $"FRAMES CLEARED: {framesPassed}", heartStyle);
 
+        // 2. GAME OVER SCREEN
         if (isGameOver)
         {
             GUIStyle boxStyle = new GUIStyle(GUI.skin.box);
@@ -81,11 +107,20 @@ public class GameManager : MonoBehaviour
             scoreStyle.fontSize = 18;
             scoreStyle.alignment = TextAnchor.MiddleCenter;
             scoreStyle.normal.textColor = Color.white;
-            GUI.Label(new Rect((Screen.width - 300) * 0.5f, (Screen.height - 60) * 0.5f, 300, 40), $"Frames Cleared: {framesPassed}", scoreStyle);
+            GUI.Label(new Rect((Screen.width - 300) * 0.5f, (Screen.height - 70) * 0.5f, 300, 40), $"Frames Cleared: {framesPassed}", scoreStyle);
 
-            if (GUI.Button(new Rect((Screen.width - 160) * 0.5f, (Screen.height + 40) * 0.5f, 160, 45), "RESTART"))
+            // RESTART BUTTON
+            if (GUI.Button(new Rect((Screen.width - 160) * 0.5f, (Screen.height + 30) * 0.5f, 160, 45), "RESTART"))
             {
-                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+                Scene currentScene = SceneManager.GetActiveScene();
+                if (currentScene.buildIndex >= 0)
+                {
+                    SceneManager.LoadScene(currentScene.buildIndex);
+                }
+                else
+                {
+                    SceneManager.LoadScene(currentScene.name);
+                }
             }
         }
     }

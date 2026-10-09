@@ -38,12 +38,32 @@ public class JuicyFlightCamera : MonoBehaviour
     private void Awake()
     {
         cam = GetComponent<Camera>();
+
+        // Auto-lock target so camera never fails
+        if (target == null)
+        {
+            JetpackFlightController jet = FindAnyObjectByType<JetpackFlightController>();
+            if (jet != null)
+            {
+                target = jet.transform;
+                flightController = jet;
+            }
+        }
+
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
 
     private void Update()
     {
+        // DO NOT steal mouse clicks if Game Over screen is showing!
+        if (GameManager.Instance != null && GameManager.Instance.isGameOver)
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            return;
+        }
+
         if (Input.GetKeyDown(KeyCode.Escape))
         {
             Cursor.lockState = CursorLockMode.None;
@@ -61,7 +81,12 @@ public class JuicyFlightCamera : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (target == null) return;
+        if (target == null)
+        {
+            JetpackFlightController jet = FindAnyObjectByType<JetpackFlightController>();
+            if (jet != null) target = jet.transform;
+            else return;
+        }
 
         UpdateCameraPosition();
     }
@@ -86,10 +111,8 @@ public class JuicyFlightCamera : MonoBehaviour
 
     private void UpdateCameraPosition()
     {
-        // Pure forward aim rotation with zero horizontal offset
         Quaternion aimRotation = Quaternion.Euler(currentAimPitch, corridorBaseYaw + currentAimYaw, 0f);
 
-        // Position directly behind the jetpack center
         Vector3 targetCenter = target.position + (Vector3.up * height);
         Vector3 desiredPosition = targetCenter - (aimRotation * Vector3.forward * distance);
 

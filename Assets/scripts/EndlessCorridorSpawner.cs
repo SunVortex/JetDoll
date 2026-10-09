@@ -4,8 +4,12 @@ using UnityEngine;
 public class EndlessCorridorSpawner : MonoBehaviour
 {
     [Header("Tracking Target")]
-    [Tooltip("Drag your Main Camera or Jet player here")]
+    [Tooltip("Drag Jetpack_Vehicle here.")]
     public Transform playerTransform;
+
+    [Header("Rooftop Runway Offset")]
+    [Tooltip("Starting Z distance where the infinite street begins (after the rooftop ledge drop).")]
+    public float startOffsetZ = 25f;
 
     [Header("Road & Sidewalk Geometry")]
     public float chunkLength = 100f;
@@ -36,13 +40,16 @@ public class EndlessCorridorSpawner : MonoBehaviour
     public float rightSideYRotation = 180f;
 
     [Header("Target Frames (Obstacles)")]
-    [Tooltip("Drag your Target_Frame prefab here")]
+    [Tooltip("Drag your Target_Frame prefab here.")]
     public GameObject[] obstaclePrefabs;
 
-    [Tooltip("Z distance step between consecutive frames (e.g. 25m to 35m gives good flight reaction time)")]
+    [Tooltip("Fixed flight height of all frames above the road (No more random Y!).")]
+    public float fixedFrameHeightY = 3.8f;
+
+    [Tooltip("Z distance step between consecutive frames.")]
     public float distanceBetweenFrames = 30f;
 
-    [Tooltip("Safe starting distance before the first frame appears")]
+    [Tooltip("Safe starting distance before the first frame appears.")]
     public float firstFrameStartDistance = 60f;
 
     [Header("View & Distance Buffer")]
@@ -54,25 +61,30 @@ public class EndlessCorridorSpawner : MonoBehaviour
     private float leftBuildingZ = 0f;
     private float rightBuildingZ = 0f;
     private float nextFrameZ = 0f;
+    private int groundLayerIndex;
 
     private List<GameObject> activeChunks = new List<GameObject>();
 
-    // 3 Horizontal positions (Left, Center, Right) across the street
+    // 3 Horizontal lanes (Left, Center, Right) across the street
     private readonly float[] gridLanesX = new float[] { -2.1f, 0.0f, 2.1f };
 
-    // 3 Vertical flight heights (Low, Middle, High) - calibrated safely above road level
-    private readonly float[] gridHeightsY = new float[] { 2.0f, 4.0f, 6.0f };
-
-    void Start()
+    private void Start()
     {
-        if (playerTransform == null && Camera.main != null)
+        if (playerTransform == null)
         {
-            playerTransform = Camera.main.transform;
+            JetpackFlightController jet = FindAnyObjectByType<JetpackFlightController>();
+            if (jet != null) playerTransform = jet.transform;
+            else if (Camera.main != null) playerTransform = Camera.main.transform;
         }
 
-        leftBuildingZ = 0f;
-        rightBuildingZ = 0f;
-        nextFrameZ = firstFrameStartDistance;
+        // Cache Ground Layer
+        groundLayerIndex = LayerMask.NameToLayer("Ground");
+        if (groundLayerIndex == -1) groundLayerIndex = 0;
+
+        spawnZ = startOffsetZ;
+        leftBuildingZ = startOffsetZ;
+        rightBuildingZ = startOffsetZ;
+        nextFrameZ = startOffsetZ + firstFrameStartDistance;
 
         for (int i = 0; i < initialChunksOnScreen; i++)
         {
@@ -80,7 +92,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
         }
     }
 
-    void Update()
+    private void Update()
     {
         if (playerTransform == null) return;
 
@@ -92,7 +104,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
         CleanupBehindPlayer();
     }
 
-    void SpawnChunk()
+    private void SpawnChunk()
     {
         GameObject chunk = new GameObject("Chunk_" + Mathf.RoundToInt(spawnZ));
         chunk.transform.SetParent(transform);
@@ -101,7 +113,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
         float halfRoad = roadWidth * 0.5f;
         float totalFoundationWidth = sidewalkWidth + underBuildingSlabWidth;
 
-        // 1. Center Asphalt Road
+        // 1. Center Asphalt Road (Set to Ground layer for hover raycasts)
         CreateSlab(chunk.transform,
             new Vector3(0, -0.08f, chunkLength * 0.5f),
             new Vector3(roadWidth, 0.05f, chunkLength),
@@ -166,14 +178,14 @@ public class EndlessCorridorSpawner : MonoBehaviour
             }
         }
 
-        // 7. Spawn Target Frames Across the 3x3 Grid
+        // 7. Spawn Target Frames at Fixed Height Across Left/Center/Right Lanes
         SpawnTargetFramesInChunk(chunk.transform);
 
         activeChunks.Add(chunk);
         spawnZ += chunkLength;
     }
 
-    void SpawnTargetFramesInChunk(Transform chunkParent)
+    private void SpawnTargetFramesInChunk(Transform chunkParent)
     {
         if (obstaclePrefabs == null || obstaclePrefabs.Length == 0) return;
 
@@ -181,11 +193,11 @@ public class EndlessCorridorSpawner : MonoBehaviour
 
         while (nextFrameZ < chunkEnd)
         {
-            // Pick a random horizontal slot (Left, Mid, Right)
+            // Pick a horizontal lane (Left, Center, Right)
             float posX = gridLanesX[Random.Range(0, gridLanesX.Length)];
 
-            // Pick a random vertical slot (Low, Mid, High)
-            float posY = gridHeightsY[Random.Range(0, gridHeightsY.Length)];
+            // FIXED HEIGHT: Always spawns level with your flight cruise line!
+            float posY = fixedFrameHeightY;
 
             GameObject framePrefab = obstaclePrefabs[Random.Range(0, obstaclePrefabs.Length)];
             if (framePrefab != null)
@@ -198,7 +210,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
         }
     }
 
-    void CreateInvisibleWall(Transform parent, Vector3 localPos, string wallName)
+    private void CreateInvisibleWall(Transform parent, Vector3 localPos, string wallName)
     {
         GameObject wall = new GameObject(wallName);
         wall.transform.SetParent(parent, false);
@@ -208,7 +220,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
         col.size = new Vector3(wallColliderThickness, wallColliderHeight, chunkLength);
     }
 
-    void CreateSlab(Transform parent, Vector3 localPos, Vector3 scale, Material mat, string name)
+    private void CreateSlab(Transform parent, Vector3 localPos, Vector3 scale, Material mat, string name)
     {
         GameObject tempCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
         Mesh mesh = tempCube.GetComponent<MeshFilter>().sharedMesh;
@@ -218,15 +230,19 @@ public class EndlessCorridorSpawner : MonoBehaviour
         slab.transform.SetParent(parent, false);
         slab.transform.localPosition = localPos;
         slab.transform.localScale = scale;
+        slab.layer = groundLayerIndex;
 
         MeshFilter mf = slab.AddComponent<MeshFilter>();
         mf.sharedMesh = mesh;
 
         MeshRenderer mr = slab.AddComponent<MeshRenderer>();
         if (mat != null) mr.sharedMaterial = mat;
+
+        BoxCollider col = slab.AddComponent<BoxCollider>();
+        col.size = Vector3.one;
     }
 
-    void CleanupBehindPlayer()
+    private void CleanupBehindPlayer()
     {
         while (activeChunks.Count > 0 && (activeChunks[0].transform.position.z + chunkLength) < (playerTransform.position.z - destroyDistanceBehind))
         {

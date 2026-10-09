@@ -6,9 +6,11 @@ public class TargetFrame : MonoBehaviour
     public GameObject glassPane;
     public Renderer[] borderRenderers;
 
-    [Header("Glow Pulsing (Breathing)")]
+    [Header("Glow Colors & Feedback")]
     public Color normalColor = Color.white;
+    public Color successColor = Color.yellow;
     public Color errorColor = Color.red;
+    public float successIntensity = 5.0f;
     public float pulseSpeed = 4.0f;
     public float minIntensity = 1.0f;
     public float maxIntensity = 4.0f;
@@ -18,7 +20,7 @@ public class TargetFrame : MonoBehaviour
     private Material[] borderMaterials;
     private Transform playerTransform;
 
-    void Awake()
+    private void Awake()
     {
         // Cache material instances for direct emission control
         if (borderRenderers != null && borderRenderers.Length > 0)
@@ -35,21 +37,26 @@ public class TargetFrame : MonoBehaviour
         }
     }
 
-    void Start()
+    private void Start()
     {
-        PlayerFlightController player = FindAnyObjectByType<PlayerFlightController>();
+        // Tracks your Jetpack_Vehicle
+        JetpackFlightController player = FindAnyObjectByType<JetpackFlightController>();
         if (player != null)
         {
             playerTransform = player.transform;
         }
+        else if (Camera.main != null)
+        {
+            playerTransform = Camera.main.transform;
+        }
     }
 
-    void Update()
+    private void Update()
     {
-        // 1. Continuous smooth breathing glow in / glow out
-        if (!isFaulted && borderMaterials != null)
+        // 1. Continuous smooth breathing glow ONLY while approaching (before hit or miss)
+        if (!isResolved && !isFaulted && borderMaterials != null)
         {
-            float pulseFactor = (Mathf.Sin(Time.time * pulseSpeed) + 1f) * 0.5f; // 0 to 1
+            float pulseFactor = (Mathf.Sin(Time.time * pulseSpeed) + 1f) * 0.5f;
             float intensity = Mathf.Lerp(minIntensity, maxIntensity, pulseFactor);
 
             Color currentGlow = normalColor * intensity;
@@ -66,17 +73,45 @@ public class TargetFrame : MonoBehaviour
         }
     }
 
+    // TRIGGER EVENT: Passing through the center glass trigger
+    private void OnTriggerEnter(Collider other)
+    {
+        if (isResolved) return;
+
+        if (IsPlayer(other.gameObject))
+        {
+            OnGlassShattered();
+        }
+    }
+
+    // COLLISION EVENT: Hitting the solid frame border
+    private void OnCollisionEnter(Collision collision)
+    {
+        if (isResolved) return;
+
+        if (IsPlayer(collision.gameObject))
+        {
+            OnBorderHit();
+        }
+    }
+
     public void OnGlassShattered()
     {
         if (isResolved) return;
         isResolved = true;
 
+        // BURST NEON YELLOW ON SUCCESS!
+        ApplyEmissionColor(successColor * successIntensity);
+
         if (glassPane != null)
         {
-            glassPane.SetActive(false); // Shatters glass pane
+            glassPane.SetActive(false); // Shatters/clears glass pane
         }
 
-        GameManager.Instance?.OnFrameSuccess();
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.OnFrameSuccess();
+        }
     }
 
     public void OnBorderHit()
@@ -87,20 +122,28 @@ public class TargetFrame : MonoBehaviour
 
         // Border flashes bright red
         ApplyEmissionColor(errorColor * 5.0f);
-        GameManager.Instance?.TakeDamage("Hit Frame Border!");
+
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.TakeDamage("Hit Frame Border!");
+        }
     }
 
-    void TriggerMiss()
+    private void TriggerMiss()
     {
         isResolved = true;
         isFaulted = true;
 
         // Border turns red because the player skipped it
         ApplyEmissionColor(errorColor * 4.0f);
-        GameManager.Instance?.TakeDamage("Missed Frame Target!");
+
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.TakeDamage("Missed Frame Target!");
+        }
     }
 
-    void ApplyEmissionColor(Color color)
+    private void ApplyEmissionColor(Color color)
     {
         if (borderMaterials == null) return;
 
@@ -111,5 +154,12 @@ public class TargetFrame : MonoBehaviour
                 borderMaterials[i].SetColor("_EmissionColor", color);
             }
         }
+    }
+
+    private bool IsPlayer(GameObject hitObj)
+    {
+        return hitObj.GetComponentInParent<JetpackFlightController>() != null ||
+               hitObj.transform.root.name.Contains("Jet") ||
+               hitObj.CompareTag("Player");
     }
 }
