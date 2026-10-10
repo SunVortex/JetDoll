@@ -42,17 +42,16 @@ public class GameManager : MonoBehaviour
 
     private void Start()
     {
-        // Start paused in Menu
-        Time.timeScale = 0f;
+        Time.timeScale = 1f;
         isPlaying = false;
         isGameOver = false;
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
 
         if (mainMenuPanel != null) mainMenuPanel.SetActive(true);
         if (quitConfirmPopup != null) quitConfirmPopup.SetActive(false);
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
-
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
 
         UpdateHUD();
     }
@@ -81,7 +80,6 @@ public class GameManager : MonoBehaviour
     {
         isGameOver = true;
         isPlaying = false;
-        Time.timeScale = 0f;
 
         if (gameOverPanel != null)
         {
@@ -113,24 +111,18 @@ public class GameManager : MonoBehaviour
     }
 
     // ==========================================
-    // UI BUTTON FUNCTIONS
+    // UI BUTTON METHODS
     // ==========================================
 
     public void PlayGame()
     {
+        Debug.Log("PLAY BUTTON CLICKED!");
+
         if (mainMenuPanel != null) mainMenuPanel.SetActive(false);
         if (quitConfirmPopup != null) quitConfirmPopup.SetActive(false);
 
         isPlaying = true;
         isGameOver = false;
-        Time.timeScale = 1f;
-
-        // Directly launch the player flight controller
-        PlayerFlightController player = FindAnyObjectByType<PlayerFlightController>();
-        if (player != null)
-        {
-            player.StartFlight();
-        }
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -138,15 +130,14 @@ public class GameManager : MonoBehaviour
 
     public void RestartGame()
     {
-        Time.timeScale = 1f;
         Scene currentScene = SceneManager.GetActiveScene();
         SceneManager.LoadScene(currentScene.name);
     }
 
     public void ReturnToMainMenu()
     {
-        Time.timeScale = 0f;
         isPlaying = false;
+        isGameOver = false;
 
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
         if (quitConfirmPopup != null) quitConfirmPopup.SetActive(false);
@@ -158,6 +149,7 @@ public class GameManager : MonoBehaviour
 
     public void OpenQuitConfirm()
     {
+        Debug.Log("QUIT BUTTON CLICKED!");
         if (quitConfirmPopup != null) quitConfirmPopup.SetActive(true);
     }
 

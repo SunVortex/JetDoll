@@ -22,7 +22,6 @@ public class TargetFrame : MonoBehaviour
 
     private void Awake()
     {
-        // Cache material instances for direct emission control
         if (borderRenderers != null && borderRenderers.Length > 0)
         {
             borderMaterials = new Material[borderRenderers.Length];
@@ -39,7 +38,6 @@ public class TargetFrame : MonoBehaviour
 
     private void Start()
     {
-        // Tracks your Jetpack_Vehicle
         JetpackFlightController player = FindAnyObjectByType<JetpackFlightController>();
         if (player != null)
         {
@@ -53,7 +51,13 @@ public class TargetFrame : MonoBehaviour
 
     private void Update()
     {
-        // 1. Continuous smooth breathing glow ONLY while approaching (before hit or miss)
+        // 1. DO NOT RUN CHECKS WHILE PAUSED IN MENU
+        if (GameManager.Instance != null && !GameManager.Instance.isPlaying)
+        {
+            return;
+        }
+
+        // 2. Continuous pulse glow while approaching
         if (!isResolved && !isFaulted && borderMaterials != null)
         {
             float pulseFactor = (Mathf.Sin(Time.time * pulseSpeed) + 1f) * 0.5f;
@@ -63,7 +67,7 @@ public class TargetFrame : MonoBehaviour
             ApplyEmissionColor(currentGlow);
         }
 
-        // 2. Miss check: if player flies 3 meters past this frame without hitting glass
+        // 3. Miss check: only triggers while actively playing flight
         if (!isResolved && playerTransform != null)
         {
             if (playerTransform.position.z > transform.position.z + 3.0f)
@@ -73,10 +77,10 @@ public class TargetFrame : MonoBehaviour
         }
     }
 
-    // TRIGGER EVENT: Passing through the center glass trigger
     private void OnTriggerEnter(Collider other)
     {
         if (isResolved) return;
+        if (GameManager.Instance != null && !GameManager.Instance.isPlaying) return;
 
         if (IsPlayer(other.gameObject))
         {
@@ -84,10 +88,10 @@ public class TargetFrame : MonoBehaviour
         }
     }
 
-    // COLLISION EVENT: Hitting the solid frame border
     private void OnCollisionEnter(Collision collision)
     {
         if (isResolved) return;
+        if (GameManager.Instance != null && !GameManager.Instance.isPlaying) return;
 
         if (IsPlayer(collision.gameObject))
         {
@@ -100,12 +104,11 @@ public class TargetFrame : MonoBehaviour
         if (isResolved) return;
         isResolved = true;
 
-        // BURST NEON YELLOW ON SUCCESS!
         ApplyEmissionColor(successColor * successIntensity);
 
         if (glassPane != null)
         {
-            glassPane.SetActive(false); // Shatters/clears glass pane
+            glassPane.SetActive(false);
         }
 
         if (GameManager.Instance != null)
@@ -120,7 +123,6 @@ public class TargetFrame : MonoBehaviour
         isResolved = true;
         isFaulted = true;
 
-        // Border flashes bright red
         ApplyEmissionColor(errorColor * 5.0f);
 
         if (GameManager.Instance != null)
@@ -134,7 +136,6 @@ public class TargetFrame : MonoBehaviour
         isResolved = true;
         isFaulted = true;
 
-        // Border turns red because the player skipped it
         ApplyEmissionColor(errorColor * 4.0f);
 
         if (GameManager.Instance != null)

@@ -27,7 +27,6 @@ public class PlayerFlightController : MonoBehaviour
 
     private float currentRoll = 0f;
     private float currentPitch = 0f;
-    private bool isFlying = false;
 
     void Start()
     {
@@ -43,23 +42,17 @@ public class PlayerFlightController : MonoBehaviour
         }
     }
 
-    // Called directly by GameManager when the manual PLAY button is clicked
-    public void StartFlight()
-    {
-        isFlying = true;
-    }
-
     void Update()
     {
-        // Don't steer or move forward until Play button is clicked
-        if (!isFlying || (GameManager.Instance != null && !GameManager.Instance.isPlaying))
+        // 1. DO NOT TOUCH MOUSE OR MOVE IF NOT IN GAMEPLAY
+        if (GameManager.Instance == null || !GameManager.Instance.isPlaying)
         {
             return;
         }
 
+        // 2. Active flight controls
         HandleFlight();
 
-        // Optional mouse escape key for testing
         if (Input.GetKeyDown(KeyCode.Escape))
         {
             Cursor.lockState = CursorLockMode.None;
@@ -69,7 +62,7 @@ public class PlayerFlightController : MonoBehaviour
 
     void LateUpdate()
     {
-        if (!isFlying || (GameManager.Instance != null && !GameManager.Instance.isPlaying))
+        if (GameManager.Instance == null || !GameManager.Instance.isPlaying)
         {
             return;
         }
@@ -77,27 +70,23 @@ public class PlayerFlightController : MonoBehaviour
         if (cameraTransform != null)
         {
             Vector3 targetCamPos = transform.position + cameraOffset;
-            cameraTransform.position = Vector3.Lerp(cameraTransform.position, targetCamPos, cameraFollowSharpness * Time.unscaledDeltaTime);
+            cameraTransform.position = Vector3.Lerp(cameraTransform.position, targetCamPos, cameraFollowSharpness * Time.deltaTime);
             cameraTransform.rotation = Quaternion.Euler(8f, 0f, 0f);
         }
     }
 
     void HandleFlight()
     {
-        // 1. Forward movement
         transform.position += Vector3.forward * forwardSpeed * Time.deltaTime;
 
-        // 2. Mouse steering
         float mouseX = Input.GetAxis("Mouse X") * horizontalSensitivity * Time.deltaTime;
         float mouseY = Input.GetAxis("Mouse Y") * verticalSensitivity * Time.deltaTime;
 
-        // 3. Move and clamp within corridor bounds
         Vector3 pos = transform.position;
         pos.x = Mathf.Clamp(pos.x + mouseX, minX, maxX);
         pos.y = Mathf.Clamp(pos.y + mouseY, minY, maxY);
         transform.position = pos;
 
-        // 4. Tilt visuals
         float targetRoll = Mathf.Clamp(-mouseX * tiltAmount * 15f, -tiltAmount, tiltAmount);
         float targetPitch = Mathf.Clamp(-mouseY * pitchAmount * 15f, -pitchAmount, pitchAmount);
 
