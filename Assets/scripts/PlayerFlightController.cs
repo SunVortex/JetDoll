@@ -1,33 +1,33 @@
 using UnityEngine;
-#if ENABLE_INPUT_SYSTEM
-using UnityEngine.InputSystem;
-#endif
 
 public class PlayerFlightController : MonoBehaviour
 {
-    public enum GameState { WaitingToStart, Flying }
-    [Header("Current State")]
-    public GameState currentState = GameState.WaitingToStart;
-
     [Header("Flight Speed")]
-    public float forwardSpeed = 26f;
+    public float forwardSpeed = 25f;
 
-    [Header("Direct Mouse Flight Box")]
-    // Exact positions matching the 3x3 Frame Grid
+    [Header("Mouse Steer Sensitivity")]
+    public float horizontalSensitivity = 16f;
+    public float verticalSensitivity = 16f;
+
+    [Header("Flight Boundaries")]
     public float minX = -2.2f;
     public float maxX = 2.2f;
-    public float minY = 1.0f;  // Puts the player directly level with bottom frame
-    public float maxY = 6.2f;  // Top frame level
-    public float steeringSpeed = 18f;
+    public float minY = 0.8f;
+    public float maxY = 6.2f;
+
+    [Header("Visual Tilt")]
+    public float tiltAmount = 25f;
+    public float pitchAmount = 15f;
+    public float rotationSmoothSpeed = 12f;
 
     [Header("Camera Rig")]
     public Transform cameraTransform;
-    // Lower camera offset directly behind the player
     public Vector3 cameraOffset = new Vector3(0f, 1.8f, -4.5f);
     public float cameraFollowSharpness = 20f;
 
-    private float targetX = 0f;
-    private float targetY = 2.0f;
+    private float currentRoll = 0f;
+    private float currentPitch = 0f;
+    private bool isFlying = false;
 
     void Start()
     {
@@ -36,7 +36,6 @@ public class PlayerFlightController : MonoBehaviour
             cameraTransform = Camera.main.transform;
         }
 
-        // Snap camera right behind player at start
         if (cameraTransform != null)
         {
             cameraTransform.position = transform.position + cameraOffset;
@@ -44,93 +43,67 @@ public class PlayerFlightController : MonoBehaviour
         }
     }
 
+    // Called directly by GameManager when the manual PLAY button is clicked
+    public void StartFlight()
+    {
+        isFlying = true;
+    }
+
     void Update()
     {
-        if (currentState == GameState.WaitingToStart)
+        // Don't steer or move forward until Play button is clicked
+        if (!isFlying || (GameManager.Instance != null && !GameManager.Instance.isPlaying))
         {
-            if (WasTapPressed())
-            {
-                currentState = GameState.Flying;
-            }
             return;
         }
 
         HandleFlight();
+
+        // Optional mouse escape key for testing
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
     }
 
     void LateUpdate()
     {
+        if (!isFlying || (GameManager.Instance != null && !GameManager.Instance.isPlaying))
+        {
+            return;
+        }
+
         if (cameraTransform != null)
         {
             Vector3 targetCamPos = transform.position + cameraOffset;
-            cameraTransform.position = Vector3.Lerp(cameraTransform.position, targetCamPos, cameraFollowSharpness * Time.deltaTime);
+            cameraTransform.position = Vector3.Lerp(cameraTransform.position, targetCamPos, cameraFollowSharpness * Time.unscaledDeltaTime);
             cameraTransform.rotation = Quaternion.Euler(8f, 0f, 0f);
         }
     }
 
     void HandleFlight()
     {
-        // 1. Move forward
+        // 1. Forward movement
         transform.position += Vector3.forward * forwardSpeed * Time.deltaTime;
 
-        // 2. Read mouse position normalized across the screen (0 to 1)
-        Vector3 mouse = GetCurrentMousePosition();
-        float normX = Mathf.Clamp01(mouse.x / Screen.width);
-        float normY = Mathf.Clamp01(mouse.y / Screen.height);
+        // 2. Mouse steering
+        float mouseX = Input.GetAxis("Mouse X") * horizontalSensitivity * Time.deltaTime;
+        float mouseY = Input.GetAxis("Mouse Y") * verticalSensitivity * Time.deltaTime;
 
-        // 3. Map directly to our corridor boundaries
-        targetX = Mathf.Lerp(minX, maxX, normX);
-        targetY = Mathf.Lerp(minY, maxY, normY);
-
-        // 4. Smooth movement
+        // 3. Move and clamp within corridor bounds
         Vector3 pos = transform.position;
-        pos.x = Mathf.Lerp(pos.x, targetX, steeringSpeed * Time.deltaTime);
-        pos.y = Mathf.Lerp(pos.y, targetY, steeringSpeed * Time.deltaTime);
+        pos.x = Mathf.Clamp(pos.x + mouseX, minX, maxX);
+        pos.y = Mathf.Clamp(pos.y + mouseY, minY, maxY);
         transform.position = pos;
 
-        // 5. Visual tilt
-        float tiltZ = (pos.x - targetX) * 15f;
-        float pitchX = (targetY - pos.y) * 10f;
-        transform.rotation = Quaternion.Euler(pitchX, 0f, tiltZ);
-    }
+        // 4. Tilt visuals
+        float targetRoll = Mathf.Clamp(-mouseX * tiltAmount * 15f, -tiltAmount, tiltAmount);
+        float targetPitch = Mathf.Clamp(-mouseY * pitchAmount * 15f, -pitchAmount, pitchAmount);
 
-    bool WasTapPressed()
-    {
-#if ENABLE_INPUT_SYSTEM
-        if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame) return true;
-        if (Touchscreen.current != null && Touchscreen.current.primaryTouch.press.wasPressedThisFrame) return true;
-        return false;
-#else
-        return Input.GetMouseButtonDown(0);
-#endif
-    }
+        currentRoll = Mathf.Lerp(currentRoll, targetRoll, rotationSmoothSpeed * Time.deltaTime);
+        currentPitch = Mathf.Lerp(currentPitch, targetPitch, rotationSmoothSpeed * Time.deltaTime);
 
-    Vector3 GetCurrentMousePosition()
-    {
-#if ENABLE_INPUT_SYSTEM
-        if (Mouse.current != null)
-        {
-            Vector2 pos = Mouse.current.position.ReadValue();
-            return new Vector3(pos.x, pos.y, 0f);
-        }
-        return Vector3.zero;
-#else
-        return Input.mousePosition;
-#endif
-    }
-
-    void OnGUI()
-    {
-        if (currentState == GameState.WaitingToStart)
-        {
-            GUIStyle labelStyle = new GUIStyle(GUI.skin.label);
-            labelStyle.fontSize = 32;
-            labelStyle.fontStyle = FontStyle.Bold;
-            labelStyle.alignment = TextAnchor.MiddleCenter;
-            labelStyle.normal.textColor = Color.white;
-
-            Rect rect = new Rect((Screen.width - 400) * 0.5f, Screen.height * 0.65f, 400, 80);
-            GUI.Label(rect, "TAP TO FLY", labelStyle);
-        }
+        transform.rotation = Quaternion.Euler(currentPitch, 0f, currentRoll);
     }
 }

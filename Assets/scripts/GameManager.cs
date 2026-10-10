@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using UnityEngine.SceneManagement;
+using TMPro;
 
 public class GameManager : MonoBehaviour
 {
@@ -11,7 +12,18 @@ public class GameManager : MonoBehaviour
 
     [Header("Game State")]
     public bool isGameOver = false;
+    public bool isPlaying = false;
     public int framesPassed = 0;
+
+    [Header("Manual UI Panels")]
+    public GameObject mainMenuPanel;
+    public GameObject quitConfirmPopup;
+    public GameObject gameOverPanel;
+
+    [Header("Optional Text Displays")]
+    public TextMeshProUGUI hudChancesText;
+    public TextMeshProUGUI hudScoreText;
+    public TextMeshProUGUI gameOverScoreText;
 
     private void Awake()
     {
@@ -22,24 +34,42 @@ public class GameManager : MonoBehaviour
         else
         {
             Destroy(gameObject);
+            return;
         }
 
         currentChances = maxChances;
     }
 
+    private void Start()
+    {
+        // Start paused in Menu
+        Time.timeScale = 0f;
+        isPlaying = false;
+        isGameOver = false;
+
+        if (mainMenuPanel != null) mainMenuPanel.SetActive(true);
+        if (quitConfirmPopup != null) quitConfirmPopup.SetActive(false);
+        if (gameOverPanel != null) gameOverPanel.SetActive(false);
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
+        UpdateHUD();
+    }
+
     public void OnFrameSuccess()
     {
-        if (isGameOver) return;
+        if (isGameOver || !isPlaying) return;
         framesPassed++;
-        Debug.Log($"Frame Cleared! Total: {framesPassed}");
+        UpdateHUD();
     }
 
     public void TakeDamage(string reason)
     {
-        if (isGameOver) return;
+        if (isGameOver || !isPlaying) return;
 
         currentChances--;
-        Debug.Log($"Damage Taken: {reason} | Remaining Chances: {currentChances}");
+        UpdateHUD();
 
         if (currentChances <= 0)
         {
@@ -50,78 +80,98 @@ public class GameManager : MonoBehaviour
     private void TriggerGameOver()
     {
         isGameOver = true;
+        isPlaying = false;
+        Time.timeScale = 0f;
 
-        // Cut flight engine and let the ragdoll tumble limp
-        JetpackFlightController player = FindAnyObjectByType<JetpackFlightController>();
-        if (player != null)
+        if (gameOverPanel != null)
         {
-            player.enabled = false;
-
-            Rigidbody rb = player.GetComponent<Rigidbody>();
-            if (rb != null)
-            {
-                rb.useGravity = true;
-            }
+            gameOverPanel.SetActive(true);
         }
 
-        // Disable camera script to free up mouse for UI clicks
-        JuicyFlightCamera camScript = FindAnyObjectByType<JuicyFlightCamera>();
-        if (camScript != null)
+        if (gameOverScoreText != null)
         {
-            camScript.enabled = false;
+            gameOverScoreText.text = $"Frames Cleared: {framesPassed}";
         }
 
-        // Unlock mouse cursor for UI interaction
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
     }
 
-    private void OnGUI()
+    private void UpdateHUD()
     {
-        // 1. HUD: LIVES & SCORE
-        GUIStyle heartStyle = new GUIStyle(GUI.skin.label);
-        heartStyle.fontSize = 22;
-        heartStyle.fontStyle = FontStyle.Bold;
-        heartStyle.normal.textColor = Color.yellow;
-
-        string hearts = "";
-        for (int i = 0; i < Mathf.Max(0, currentChances); i++) hearts += " ♥ ";
-        GUI.Label(new Rect(30, 25, 350, 35), $"CHANCES: {hearts} ({Mathf.Max(0, currentChances)})", heartStyle);
-        GUI.Label(new Rect(30, 55, 350, 35), $"FRAMES CLEARED: {framesPassed}", heartStyle);
-
-        // 2. GAME OVER SCREEN
-        if (isGameOver)
+        if (hudChancesText != null)
         {
-            GUIStyle boxStyle = new GUIStyle(GUI.skin.box);
-            GUI.Box(new Rect((Screen.width - 320) * 0.5f, (Screen.height - 220) * 0.5f, 320, 220), "");
-
-            GUIStyle titleStyle = new GUIStyle(GUI.skin.label);
-            titleStyle.fontSize = 32;
-            titleStyle.fontStyle = FontStyle.Bold;
-            titleStyle.alignment = TextAnchor.MiddleCenter;
-            titleStyle.normal.textColor = Color.red;
-
-            GUI.Label(new Rect((Screen.width - 300) * 0.5f, (Screen.height - 180) * 0.5f, 300, 50), "GAME OVER", titleStyle);
-
-            GUIStyle scoreStyle = new GUIStyle(GUI.skin.label);
-            scoreStyle.fontSize = 18;
-            scoreStyle.alignment = TextAnchor.MiddleCenter;
-            scoreStyle.normal.textColor = Color.white;
-            GUI.Label(new Rect((Screen.width - 300) * 0.5f, (Screen.height - 70) * 0.5f, 300, 40), $"Frames Cleared: {framesPassed}", scoreStyle);
-
-            // RESTART BUTTON
-            if (GUI.Button(new Rect((Screen.width - 160) * 0.5f, (Screen.height + 30) * 0.5f, 160, 45), "RESTART"))
-            {
-                Scene currentScene = SceneManager.GetActiveScene();
-                if (currentScene.buildIndex >= 0)
-                {
-                    SceneManager.LoadScene(currentScene.buildIndex);
-                }
-                else
-                {
-                    SceneManager.LoadScene(currentScene.name);
-                }
-            }
+            string hearts = "";
+            for (int i = 0; i < Mathf.Max(0, currentChances); i++) hearts += " ♥ ";
+            hudChancesText.text = $"CHANCES: {hearts} ({Mathf.Max(0, currentChances)})";
         }
+
+        if (hudScoreText != null)
+        {
+            hudScoreText.text = $"FRAMES CLEARED: {framesPassed}";
+        }
+    }
+
+    // ==========================================
+    // UI BUTTON FUNCTIONS
+    // ==========================================
+
+    public void PlayGame()
+    {
+        if (mainMenuPanel != null) mainMenuPanel.SetActive(false);
+        if (quitConfirmPopup != null) quitConfirmPopup.SetActive(false);
+
+        isPlaying = true;
+        isGameOver = false;
+        Time.timeScale = 1f;
+
+        // Directly launch the player flight controller
+        PlayerFlightController player = FindAnyObjectByType<PlayerFlightController>();
+        if (player != null)
+        {
+            player.StartFlight();
+        }
+
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+    }
+
+    public void RestartGame()
+    {
+        Time.timeScale = 1f;
+        Scene currentScene = SceneManager.GetActiveScene();
+        SceneManager.LoadScene(currentScene.name);
+    }
+
+    public void ReturnToMainMenu()
+    {
+        Time.timeScale = 0f;
+        isPlaying = false;
+
+        if (gameOverPanel != null) gameOverPanel.SetActive(false);
+        if (quitConfirmPopup != null) quitConfirmPopup.SetActive(false);
+        if (mainMenuPanel != null) mainMenuPanel.SetActive(true);
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+
+    public void OpenQuitConfirm()
+    {
+        if (quitConfirmPopup != null) quitConfirmPopup.SetActive(true);
+    }
+
+    public void CancelQuit()
+    {
+        if (quitConfirmPopup != null) quitConfirmPopup.SetActive(false);
+    }
+
+    public void ConfirmQuitGame()
+    {
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
 }

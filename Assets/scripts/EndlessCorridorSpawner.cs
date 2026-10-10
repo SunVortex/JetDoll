@@ -4,11 +4,10 @@ using UnityEngine;
 public class EndlessCorridorSpawner : MonoBehaviour
 {
     [Header("Tracking Target")]
-    [Tooltip("Drag Jetpack_Vehicle here.")]
+    [Tooltip("Drag Jetpack_Vehicle or Main Camera here.")]
     public Transform playerTransform;
 
     [Header("Rooftop Runway Offset")]
-    [Tooltip("Starting Z distance where the infinite street begins (after the rooftop ledge drop).")]
     public float startOffsetZ = 25f;
 
     [Header("Road & Sidewalk Geometry")]
@@ -34,8 +33,11 @@ public class EndlessCorridorSpawner : MonoBehaviour
 
     [Header("Building Configuration")]
     public GameObject[] buildingPrefabs;
-    public float buildingSpacingZ = 5.0f;
-    public float buildingFrontOffsetX = 2.5f;
+    public float buildingSpacingZ = 6.0f;
+    [Tooltip("Distance away from the road curb. Higher value pushes buildings away from the road.")]
+    public float buildingFrontOffsetX = 4.5f;
+    [Tooltip("Scale multiplier to make all buildings taller and larger.")]
+    public float buildingScaleMultiplier = 1.6f;
     public float leftSideYRotation = 0f;
     public float rightSideYRotation = 180f;
 
@@ -43,14 +45,11 @@ public class EndlessCorridorSpawner : MonoBehaviour
     [Tooltip("Drag your Target_Frame prefab here.")]
     public GameObject[] obstaclePrefabs;
 
-    [Tooltip("Fixed flight height of all frames above the road (No more random Y!).")]
-    public float fixedFrameHeightY = 3.8f;
-
     [Tooltip("Z distance step between consecutive frames.")]
     public float distanceBetweenFrames = 30f;
 
     [Tooltip("Safe starting distance before the first frame appears.")]
-    public float firstFrameStartDistance = 60f;
+    public float firstFrameStartDistance = 65f;
 
     [Header("View & Distance Buffer")]
     public int initialChunksOnScreen = 8;
@@ -65,8 +64,11 @@ public class EndlessCorridorSpawner : MonoBehaviour
 
     private List<GameObject> activeChunks = new List<GameObject>();
 
-    // 3 Horizontal lanes (Left, Center, Right) across the street
-    private readonly float[] gridLanesX = new float[] { -2.1f, 0.0f, 2.1f };
+    // ONLY inside the center lane: narrow Left, Middle, Right offsets right along the road markings
+    private readonly float[] centerTrackLanesX = new float[] { -0.75f, 0.0f, 0.75f };
+
+    // 3 Distinct vertical heights to fly through
+    private readonly float[] gridHeightsY = new float[] { 2.4f, 4.0f, 5.8f };
 
     private void Start()
     {
@@ -77,13 +79,12 @@ public class EndlessCorridorSpawner : MonoBehaviour
             else if (Camera.main != null) playerTransform = Camera.main.transform;
         }
 
-        // Cache Ground Layer
         groundLayerIndex = LayerMask.NameToLayer("Ground");
         if (groundLayerIndex == -1) groundLayerIndex = 0;
 
         spawnZ = startOffsetZ;
-        leftBuildingZ = startOffsetZ;
-        rightBuildingZ = startOffsetZ;
+        leftBuildingZ = startOffsetZ + 10f;
+        rightBuildingZ = startOffsetZ + 10f;
         nextFrameZ = startOffsetZ + firstFrameStartDistance;
 
         for (int i = 0; i < initialChunksOnScreen; i++)
@@ -113,7 +114,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
         float halfRoad = roadWidth * 0.5f;
         float totalFoundationWidth = sidewalkWidth + underBuildingSlabWidth;
 
-        // 1. Center Asphalt Road (Set to Ground layer for hover raycasts)
+        // 1. Center Asphalt Road
         CreateSlab(chunk.transform,
             new Vector3(0, -0.08f, chunkLength * 0.5f),
             new Vector3(roadWidth, 0.05f, chunkLength),
@@ -147,7 +148,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
         CreateInvisibleWall(chunk.transform, new Vector3(-wallBoundaryX, wallColliderHeight * 0.5f, chunkLength * 0.5f), "Left_Boundary_Collider");
         CreateInvisibleWall(chunk.transform, new Vector3(wallBoundaryX, wallColliderHeight * 0.5f, chunkLength * 0.5f), "Right_Boundary_Collider");
 
-        // 6. Buildings
+        // 6. Buildings (Larger size & consistent setback from the road)
         if (buildingPrefabs != null && buildingPrefabs.Length > 0 && buildingSpacingZ > 0.5f)
         {
             float chunkTargetZ = spawnZ + chunkLength;
@@ -161,6 +162,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
                 GameObject prefab = buildingPrefabs[Random.Range(0, buildingPrefabs.Length)];
 
                 GameObject b = Instantiate(prefab, new Vector3(leftPlacementX, buildingBaseY, placeZ), Quaternion.Euler(0, leftSideYRotation, 0));
+                b.transform.localScale *= buildingScaleMultiplier;
                 b.transform.SetParent(chunk.transform);
 
                 leftBuildingZ += buildingSpacingZ;
@@ -172,13 +174,14 @@ public class EndlessCorridorSpawner : MonoBehaviour
                 GameObject prefab = buildingPrefabs[Random.Range(0, buildingPrefabs.Length)];
 
                 GameObject b = Instantiate(prefab, new Vector3(rightPlacementX, buildingBaseY, placeZ), Quaternion.Euler(0, rightSideYRotation, 0));
+                b.transform.localScale *= buildingScaleMultiplier;
                 b.transform.SetParent(chunk.transform);
 
                 rightBuildingZ += buildingSpacingZ;
             }
         }
 
-        // 7. Spawn Target Frames at Fixed Height Across Left/Center/Right Lanes
+        // 7. Spawn Target Frames ONLY in Middle corridor track
         SpawnTargetFramesInChunk(chunk.transform);
 
         activeChunks.Add(chunk);
@@ -193,11 +196,11 @@ public class EndlessCorridorSpawner : MonoBehaviour
 
         while (nextFrameZ < chunkEnd)
         {
-            // Pick a horizontal lane (Left, Center, Right)
-            float posX = gridLanesX[Random.Range(0, gridLanesX.Length)];
+            // Pick narrow center-track lane (-0.75, 0, +0.75)
+            float posX = centerTrackLanesX[Random.Range(0, centerTrackLanesX.Length)];
 
-            // FIXED HEIGHT: Always spawns level with your flight cruise line!
-            float posY = fixedFrameHeightY;
+            // Pick flight altitude (Low, Mid, High)
+            float posY = gridHeightsY[Random.Range(0, gridHeightsY.Length)];
 
             GameObject framePrefab = obstaclePrefabs[Random.Range(0, obstaclePrefabs.Length)];
             if (framePrefab != null)
