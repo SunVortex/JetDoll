@@ -13,6 +13,10 @@ public class GameManager : MonoBehaviour
     [Header("Current State")]
     public GameState currentState = GameState.MainMenu;
 
+    // COMPATIBILITY BRIDGE FOR YOUR FRIEND'S SCRIPT (Fixes CS1061):
+    public bool isPlaying => currentState == GameState.Playing;
+    public bool isGameOver => currentState == GameState.GameOver;
+
     [Header("Cinematic Camera Transition")]
     public Camera mainCamera;
     public Transform menuCameraAnchor;
@@ -27,8 +31,7 @@ public class GameManager : MonoBehaviour
     public RectTransform menuPanel;
     public GameObject hudPanel;
     public GameObject gameOverPanel;
-    [Tooltip("The popup Tutorial/How-to-play panel.")]
-    public GameObject tutorialPanel; // Tutorial Panel reference!
+    public GameObject tutorialPanel;
 
     [Header("TextMeshPro UI Text Displays")]
     public TextMeshProUGUI livesText;
@@ -45,7 +48,10 @@ public class GameManager : MonoBehaviour
 
     private void Awake()
     {
-        if (Instance == null) Instance = this;
+        if (Instance == null)
+        {
+            Instance = this;
+        }
         else
         {
             Destroy(gameObject);
@@ -253,7 +259,6 @@ public class GameManager : MonoBehaviour
             if (finalScoreText != null) finalScoreText.text = $"FRAMES CLEARED: {framesPassed}";
         }
 
-        // Play Game Over SFX & cut music
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGameOver();
 
         SetMenuCursor();
@@ -263,12 +268,14 @@ public class GameManager : MonoBehaviour
     {
         if (livesText != null)
         {
-            string hearts = "";
-            for (int i = 0; i < Mathf.Max(0, currentChances); i++) hearts += " ♥ ";
-            livesText.text = $"LIVES: {hearts}";
+            // Standard clean text formatting (no missing Unicode heart symbols)
+            livesText.text = $"LIVES: {Mathf.Max(0, currentChances)} / {maxChances}";
         }
 
-        if (scoreText != null) scoreText.text = $"SCORE: {framesPassed}";
+        if (scoreText != null)
+        {
+            scoreText.text = $"SCORE: {framesPassed}";
+        }
     }
 
     private void SetMenuCursor()
