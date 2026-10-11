@@ -22,7 +22,6 @@ public class TargetFrame : MonoBehaviour
 
     private void Awake()
     {
-        // Cache material instances for direct emission control
         if (borderRenderers != null && borderRenderers.Length > 0)
         {
             borderMaterials = new Material[borderRenderers.Length];
@@ -39,21 +38,13 @@ public class TargetFrame : MonoBehaviour
 
     private void Start()
     {
-        // Tracks your Jetpack_Vehicle
         JetpackFlightController player = FindAnyObjectByType<JetpackFlightController>();
-        if (player != null)
-        {
-            playerTransform = player.transform;
-        }
-        else if (Camera.main != null)
-        {
-            playerTransform = Camera.main.transform;
-        }
+        if (player != null) playerTransform = player.transform;
+        else if (Camera.main != null) playerTransform = Camera.main.transform;
     }
 
     private void Update()
     {
-        // 1. Continuous smooth breathing glow ONLY while approaching (before hit or miss)
         if (!isResolved && !isFaulted && borderMaterials != null)
         {
             float pulseFactor = (Mathf.Sin(Time.time * pulseSpeed) + 1f) * 0.5f;
@@ -63,7 +54,6 @@ public class TargetFrame : MonoBehaviour
             ApplyEmissionColor(currentGlow);
         }
 
-        // 2. Miss check: if player flies 3 meters past this frame without hitting glass
         if (!isResolved && playerTransform != null)
         {
             if (playerTransform.position.z > transform.position.z + 3.0f)
@@ -73,26 +63,16 @@ public class TargetFrame : MonoBehaviour
         }
     }
 
-    // TRIGGER EVENT: Passing through the center glass trigger
     private void OnTriggerEnter(Collider other)
     {
         if (isResolved) return;
-
-        if (IsPlayer(other.gameObject))
-        {
-            OnGlassShattered();
-        }
+        if (IsPlayer(other.gameObject)) OnGlassShattered();
     }
 
-    // COLLISION EVENT: Hitting the solid frame border
     private void OnCollisionEnter(Collision collision)
     {
         if (isResolved) return;
-
-        if (IsPlayer(collision.gameObject))
-        {
-            OnBorderHit();
-        }
+        if (IsPlayer(collision.gameObject)) OnBorderHit();
     }
 
     public void OnGlassShattered()
@@ -100,18 +80,13 @@ public class TargetFrame : MonoBehaviour
         if (isResolved) return;
         isResolved = true;
 
-        // BURST NEON YELLOW ON SUCCESS!
         ApplyEmissionColor(successColor * successIntensity);
 
-        if (glassPane != null)
-        {
-            glassPane.SetActive(false); // Shatters/clears glass pane
-        }
+        if (glassPane != null) glassPane.SetActive(false);
 
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.OnFrameSuccess();
-        }
+        // Sound & Score
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayGoalSuccess();
+        if (GameManager.Instance != null) GameManager.Instance.OnFrameSuccess();
     }
 
     public void OnBorderHit()
@@ -120,13 +95,11 @@ public class TargetFrame : MonoBehaviour
         isResolved = true;
         isFaulted = true;
 
-        // Border flashes bright red
         ApplyEmissionColor(errorColor * 5.0f);
 
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.TakeDamage("Hit Frame Border!");
-        }
+        // Sound & Damage
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayGoalMiss();
+        if (GameManager.Instance != null) GameManager.Instance.TakeDamage("Hit Frame Border!");
     }
 
     private void TriggerMiss()
@@ -134,25 +107,19 @@ public class TargetFrame : MonoBehaviour
         isResolved = true;
         isFaulted = true;
 
-        // Border turns red because the player skipped it
         ApplyEmissionColor(errorColor * 4.0f);
 
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.TakeDamage("Missed Frame Target!");
-        }
+        // Sound & Damage
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayGoalMiss();
+        if (GameManager.Instance != null) GameManager.Instance.TakeDamage("Missed Frame Target!");
     }
 
     private void ApplyEmissionColor(Color color)
     {
         if (borderMaterials == null) return;
-
         for (int i = 0; i < borderMaterials.Length; i++)
         {
-            if (borderMaterials[i] != null)
-            {
-                borderMaterials[i].SetColor("_EmissionColor", color);
-            }
+            if (borderMaterials[i] != null) borderMaterials[i].SetColor("_EmissionColor", color);
         }
     }
 
