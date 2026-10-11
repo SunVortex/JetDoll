@@ -1,127 +1,279 @@
-﻿using UnityEngine;
+﻿using System.Collections;
+using UnityEngine;
+using UnityEngine.UI;
 using UnityEngine.SceneManagement;
+using TMPro;
 
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance;
 
+    public enum GameState { MainMenu, Transitioning, Playing, GameOver }
+
+    [Header("Current State")]
+    public GameState currentState = GameState.MainMenu;
+
+    [Header("Cinematic Camera Transition")]
+    public Camera mainCamera;
+    public Transform menuCameraAnchor;
+    public float cameraSwoopDuration = 0.85f;
+
     [Header("Player Chances (Lives)")]
     public int maxChances = 3;
     public int currentChances = 3;
-
-    [Header("Game State")]
-    public bool isGameOver = false;
     public int framesPassed = 0;
+
+    [Header("UI Hierarchy Panels")]
+    public RectTransform menuPanel;
+    public GameObject hudPanel;
+    public GameObject gameOverPanel;
+    [Tooltip("The popup Tutorial/How-to-play panel.")]
+    public GameObject tutorialPanel; // Tutorial Panel reference!
+
+    [Header("TextMeshPro UI Text Displays")]
+    public TextMeshProUGUI livesText;
+    public TextMeshProUGUI scoreText;
+    public TextMeshProUGUI finalScoreText;
+
+    [Header("Menu Slide Animation")]
+    public float slideDuration = 0.45f;
+    public float slideDistanceLeft = -1200f;
+
+    private static bool skipMenuOnReload = false;
+    private Vector2 menuStartPos;
+    private JuicyFlightCamera cameraController;
 
     private void Awake()
     {
-        if (Instance == null)
-        {
-            Instance = this;
-        }
+        if (Instance == null) Instance = this;
         else
         {
             Destroy(gameObject);
+            return;
         }
 
         currentChances = maxChances;
+
+        if (mainCamera == null) mainCamera = Camera.main;
+        if (mainCamera != null) cameraController = mainCamera.GetComponent<JuicyFlightCamera>();
     }
+
+    private void Start()
+    {
+        if (gameOverPanel != null) gameOverPanel.SetActive(false);
+        if (tutorialPanel != null) tutorialPanel.SetActive(false);
+
+        if (skipMenuOnReload)
+        {
+            skipMenuOnReload = false;
+            currentState = GameState.Playing;
+
+            if (menuPanel != null) menuPanel.gameObject.SetActive(false);
+            if (hudPanel != null) hudPanel.SetActive(true);
+            if (cameraController != null) cameraController.enabled = true;
+
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+
+            if (AudioManager.Instance != null) AudioManager.Instance.ResumeMusic();
+        }
+        else
+        {
+            currentState = GameState.MainMenu;
+
+            if (menuPanel != null)
+            {
+                menuStartPos = menuPanel.anchoredPosition;
+                menuPanel.gameObject.SetActive(true);
+            }
+
+            if (hudPanel != null) hudPanel.SetActive(false);
+            if (cameraController != null) cameraController.enabled = false;
+
+            if (mainCamera != null && menuCameraAnchor != null)
+            {
+                mainCamera.transform.position = menuCameraAnchor.position;
+                mainCamera.transform.rotation = menuCameraAnchor.rotation;
+            }
+
+            SetMenuCursor();
+            if (AudioManager.Instance != null) AudioManager.Instance.ResumeMusic();
+        }
+
+        UpdateHUD();
+    }
+
+    // ==========================================
+    // TUTORIAL PANEL FUNCTIONS
+    // ==========================================
+
+    public void OpenTutorial()
+    {
+        if (tutorialPanel != null) tutorialPanel.SetActive(true);
+    }
+
+    public void CloseTutorial()
+    {
+        if (tutorialPanel != null) tutorialPanel.SetActive(false);
+    }
+
+    // ==========================================
+    // UI BUTTON FUNCTIONS
+    // ==========================================
+
+    public void StartGame()
+    {
+        if (currentState != GameState.MainMenu) return;
+        StartCoroutine(CinematicPlaySequence());
+    }
+
+    private IEnumerator CinematicPlaySequence()
+    {
+        currentState = GameState.Transitioning;
+
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+
+        StartCoroutine(SlideMenuRoutine());
+
+        if (mainCamera != null && cameraController != null && cameraController.target != null)
+        {
+            Vector3 startPos = mainCamera.transform.position;
+            Quaternion startRot = mainCamera.transform.rotation;
+
+            Vector3 targetCenter = cameraController.target.position + (Vector3.up * cameraController.height);
+            Vector3 targetPos = targetCenter - (Quaternion.Euler(0, cameraController.corridorBaseYaw, 0) * Vector3.forward * cameraController.distance);
+            Quaternion targetRot = Quaternion.Euler(0, cameraController.corridorBaseYaw, 0);
+
+            float elapsed = 0f;
+            while (elapsed < cameraSwoopDuration)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.SmoothStep(0f, 1f, elapsed / cameraSwoopDuration);
+
+                targetCenter = cameraController.target.position + (Vector3.up * cameraController.height);
+                targetPos = targetCenter - (Quaternion.Euler(0, cameraController.corridorBaseYaw, 0) * Vector3.forward * cameraController.distance);
+
+                mainCamera.transform.position = Vector3.Lerp(startPos, targetPos, t);
+                mainCamera.transform.rotation = Quaternion.Slerp(startRot, targetRot, t);
+
+                yield return null;
+            }
+
+            cameraController.enabled = true;
+        }
+
+        currentState = GameState.Playing;
+        if (hudPanel != null) hudPanel.SetActive(true);
+    }
+
+    private IEnumerator SlideMenuRoutine()
+    {
+        if (menuPanel != null)
+        {
+            Vector2 targetPos = menuStartPos + new Vector2(slideDistanceLeft, 0f);
+            float elapsed = 0f;
+
+            while (elapsed < slideDuration)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.SmoothStep(0f, 1f, elapsed / slideDuration);
+                menuPanel.anchoredPosition = Vector2.Lerp(menuStartPos, targetPos, t);
+                yield return null;
+            }
+
+            menuPanel.gameObject.SetActive(false);
+        }
+    }
+
+    public void RestartGameDirectly()
+    {
+        skipMenuOnReload = true;
+        ReloadActiveScene();
+    }
+
+    public void ReturnToMainMenu()
+    {
+        skipMenuOnReload = false;
+        ReloadActiveScene();
+    }
+
+    public void QuitGame()
+    {
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
+    }
+
+    private void ReloadActiveScene()
+    {
+        Scene currentScene = SceneManager.GetActiveScene();
+        if (currentScene.buildIndex >= 0) SceneManager.LoadScene(currentScene.buildIndex);
+        else SceneManager.LoadScene(currentScene.name);
+    }
+
+    // ==========================================
+    // GAMEPLAY EVENTS
+    // ==========================================
 
     public void OnFrameSuccess()
     {
-        if (isGameOver) return;
+        if (currentState != GameState.Playing) return;
         framesPassed++;
-        Debug.Log($"Frame Cleared! Total: {framesPassed}");
+        UpdateHUD();
     }
 
     public void TakeDamage(string reason)
     {
-        if (isGameOver) return;
-
+        if (currentState != GameState.Playing) return;
         currentChances--;
-        Debug.Log($"Damage Taken: {reason} | Remaining Chances: {currentChances}");
+        UpdateHUD();
 
-        if (currentChances <= 0)
-        {
-            TriggerGameOver();
-        }
+        if (currentChances <= 0) TriggerGameOver();
     }
 
     private void TriggerGameOver()
     {
-        isGameOver = true;
+        currentState = GameState.GameOver;
 
-        // Cut flight engine and let the ragdoll tumble limp
         JetpackFlightController player = FindAnyObjectByType<JetpackFlightController>();
         if (player != null)
         {
             player.enabled = false;
-
             Rigidbody rb = player.GetComponent<Rigidbody>();
-            if (rb != null)
-            {
-                rb.useGravity = true;
-            }
+            if (rb != null) rb.useGravity = true;
         }
 
-        // Disable camera script to free up mouse for UI clicks
-        JuicyFlightCamera camScript = FindAnyObjectByType<JuicyFlightCamera>();
-        if (camScript != null)
+        if (hudPanel != null) hudPanel.SetActive(false);
+        if (gameOverPanel != null)
         {
-            camScript.enabled = false;
+            gameOverPanel.SetActive(true);
+            if (finalScoreText != null) finalScoreText.text = $"FRAMES CLEARED: {framesPassed}";
         }
 
-        // Unlock mouse cursor for UI interaction
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
+        // Play Game Over SFX & cut music
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayGameOver();
+
+        SetMenuCursor();
     }
 
-    private void OnGUI()
+    private void UpdateHUD()
     {
-        // 1. HUD: LIVES & SCORE
-        GUIStyle heartStyle = new GUIStyle(GUI.skin.label);
-        heartStyle.fontSize = 22;
-        heartStyle.fontStyle = FontStyle.Bold;
-        heartStyle.normal.textColor = Color.yellow;
-
-        string hearts = "";
-        for (int i = 0; i < Mathf.Max(0, currentChances); i++) hearts += " ♥ ";
-        GUI.Label(new Rect(30, 25, 350, 35), $"CHANCES: {hearts} ({Mathf.Max(0, currentChances)})", heartStyle);
-        GUI.Label(new Rect(30, 55, 350, 35), $"FRAMES CLEARED: {framesPassed}", heartStyle);
-
-        // 2. GAME OVER SCREEN
-        if (isGameOver)
+        if (livesText != null)
         {
-            GUIStyle boxStyle = new GUIStyle(GUI.skin.box);
-            GUI.Box(new Rect((Screen.width - 320) * 0.5f, (Screen.height - 220) * 0.5f, 320, 220), "");
-
-            GUIStyle titleStyle = new GUIStyle(GUI.skin.label);
-            titleStyle.fontSize = 32;
-            titleStyle.fontStyle = FontStyle.Bold;
-            titleStyle.alignment = TextAnchor.MiddleCenter;
-            titleStyle.normal.textColor = Color.red;
-
-            GUI.Label(new Rect((Screen.width - 300) * 0.5f, (Screen.height - 180) * 0.5f, 300, 50), "GAME OVER", titleStyle);
-
-            GUIStyle scoreStyle = new GUIStyle(GUI.skin.label);
-            scoreStyle.fontSize = 18;
-            scoreStyle.alignment = TextAnchor.MiddleCenter;
-            scoreStyle.normal.textColor = Color.white;
-            GUI.Label(new Rect((Screen.width - 300) * 0.5f, (Screen.height - 70) * 0.5f, 300, 40), $"Frames Cleared: {framesPassed}", scoreStyle);
-
-            // RESTART BUTTON
-            if (GUI.Button(new Rect((Screen.width - 160) * 0.5f, (Screen.height + 30) * 0.5f, 160, 45), "RESTART"))
-            {
-                Scene currentScene = SceneManager.GetActiveScene();
-                if (currentScene.buildIndex >= 0)
-                {
-                    SceneManager.LoadScene(currentScene.buildIndex);
-                }
-                else
-                {
-                    SceneManager.LoadScene(currentScene.name);
-                }
-            }
+            string hearts = "";
+            for (int i = 0; i < Mathf.Max(0, currentChances); i++) hearts += " ♥ ";
+            livesText.text = $"LIVES: {hearts}";
         }
+
+        if (scoreText != null) scoreText.text = $"SCORE: {framesPassed}";
+    }
+
+    private void SetMenuCursor()
+    {
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 }

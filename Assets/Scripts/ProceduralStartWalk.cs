@@ -32,7 +32,6 @@ public class ProceduralStartWalk : MonoBehaviour
     [Tooltip("Assign the Ground layer here.")]
     public LayerMask groundLayer = ~0;
 
-    // Public state
     public bool HasLeftRooftop { get; private set; } = false;
 
     private Rigidbody jetRb;
@@ -45,20 +44,17 @@ public class ProceduralStartWalk : MonoBehaviour
     {
         jetRb = GetComponent<Rigidbody>();
 
-        // Disable flight controller until we step off the ledge
         if (flightController != null)
         {
             flightController.enabled = false;
         }
 
-        // Freeze rotations so character stays strictly upright without tipping
         jetRb.constraints = RigidbodyConstraints.FreezeRotation;
         jetRb.useGravity = false;
     }
 
     private void Start()
     {
-        // Record starting standing elevation
         baseStandingY = transform.position.y;
     }
 
@@ -66,7 +62,13 @@ public class ProceduralStartWalk : MonoBehaviour
     {
         if (HasLeftRooftop) return;
 
-        // Walk only while holding W
+        // WALKING LOCKED DURING MAIN MENU
+        if (GameManager.Instance != null && GameManager.Instance.currentState != GameManager.GameState.Playing)
+        {
+            isWalking = false;
+            return;
+        }
+
         isWalking = Input.GetKey(KeyCode.W);
     }
 
@@ -74,7 +76,6 @@ public class ProceduralStartWalk : MonoBehaviour
     {
         if (HasLeftRooftop) return;
 
-        // 1. CHECK IF STEPPED OFF THE LEDGE
         Ray ray = new Ray(transform.position, Vector3.down);
         bool groundDetected = Physics.Raycast(ray, groundCheckDistance, groundLayer);
 
@@ -92,27 +93,22 @@ public class ProceduralStartWalk : MonoBehaviour
             offLedgeFrames = 0;
         }
 
-        // 2. SMOOTH VELOCITY LOCOMOTION (Zero teleporting, zero vibration!)
         HandleRooftopMovement();
     }
 
     private void HandleRooftopMovement()
     {
-        // Calculate target standing height + step bob offset
         float targetBob = 0f;
         Vector3 forwardMove = Vector3.zero;
 
         if (isWalking)
         {
-            // Advance stride cycle
             strideTimer += Time.fixedDeltaTime * stepFrequency;
             float stride = Mathf.Sin(strideTimer);
 
-            // Natural vertical bounce on each step
             targetBob = Mathf.Abs(stride) * stepBobAmount;
             forwardMove = transform.forward * walkSpeed;
 
-            // KNEE-DRIVE ACTION (Bends knees and lifts feet)
             if (leftKneeRb != null)
             {
                 float forwardForce = stride * kneeKickPower;
@@ -138,12 +134,10 @@ public class ProceduralStartWalk : MonoBehaviour
             if (rightKneeRb != null) rightKneeRb.linearVelocity = Vector3.zero;
         }
 
-        // SMOOTH VERTICAL VELOCITY SUSPENSION (Replaces teleportation!)
         float targetY = baseStandingY + targetBob;
         float heightDifference = targetY - transform.position.y;
         float smoothVerticalVelocity = Mathf.Clamp(heightDifference * standSuspensionStrength, -4f, 4f);
 
-        // Apply velocities cleanly to the Rigidbody
 #if UNITY_6000_0_OR_NEWER
         Vector3 vel = jetRb.linearVelocity;
         vel.x = forwardMove.x;
@@ -162,23 +156,13 @@ public class ProceduralStartWalk : MonoBehaviour
     private void LaunchIntoFlight()
     {
         HasLeftRooftop = true;
-
-        // Unfreeze constraints so the ragdoll is 100% free
         jetRb.constraints = RigidbodyConstraints.None;
 
-        // Turn on the flight controller
         if (flightController != null)
         {
             flightController.enabled = true;
         }
 
-        // Destroy walk component cleanly so flight takes full control
         Destroy(this);
-    }
-
-    private void OnDrawGizmosSelected()
-    {
-        Gizmos.color = HasLeftRooftop ? Color.red : Color.green;
-        Gizmos.DrawLine(transform.position, transform.position + (Vector3.down * groundCheckDistance));
     }
 }

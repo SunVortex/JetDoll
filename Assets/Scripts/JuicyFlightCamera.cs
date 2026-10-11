@@ -14,7 +14,7 @@ public class JuicyFlightCamera : MonoBehaviour
     public float distance = 4.2f;
     [Tooltip("Height aligned right with the jetpack center.")]
     public float height = 0.9f;
-    [Tooltip("Follow speed: 20 gives tight, razor-sharp tracking.")]
+    [Tooltip("Follow speed: 20 gives tight tracking.")]
     public float followSpeed = 20f;
 
     [Header("Forward Corridor Aim Cone")]
@@ -39,7 +39,7 @@ public class JuicyFlightCamera : MonoBehaviour
     {
         cam = GetComponent<Camera>();
 
-        // Auto-lock target so camera never fails
+        // Auto-lock target
         if (target == null)
         {
             JetpackFlightController jet = FindAnyObjectByType<JetpackFlightController>();
@@ -49,21 +49,17 @@ public class JuicyFlightCamera : MonoBehaviour
                 flightController = jet;
             }
         }
-
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
     }
 
     private void Update()
     {
-        // DO NOT steal mouse clicks if Game Over screen is showing!
-        if (GameManager.Instance != null && GameManager.Instance.isGameOver)
+        // CAMERA LOCKOUT: Never capture mouse or rotate during Main Menu or Game Over!
+        if (GameManager.Instance != null && GameManager.Instance.currentState != GameManager.GameState.Playing)
         {
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
             return;
         }
 
+        // In-game cursor unlock with Escape
         if (Input.GetKeyDown(KeyCode.Escape))
         {
             Cursor.lockState = CursorLockMode.None;
