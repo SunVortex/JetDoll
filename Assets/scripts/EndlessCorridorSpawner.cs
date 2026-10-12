@@ -121,36 +121,36 @@ public class EndlessCorridorSpawner : MonoBehaviour
         float halfRoad = roadWidth * 0.5f;
         float totalFoundationWidth = sidewalkWidth + underBuildingSlabWidth;
 
-        // 1. Center Asphalt Road
+        // 1. Center Asphalt Road (STAMPED WITH "Road" TAG!)
         CreateSlab(chunk.transform,
             new Vector3(0f, -0.08f, chunkLength * 0.5f),
             new Vector3(roadWidth, 0.05f, chunkLength),
-            roadMaterial, "Road");
+            roadMaterial, "Road", "Road");
 
         // 2. Left Sidewalk & Foundation Floor
         float leftCenter = -halfRoad - (totalFoundationWidth * 0.5f);
         CreateSlab(chunk.transform,
             new Vector3(leftCenter, footpathHeight * 0.5f, chunkLength * 0.5f),
             new Vector3(totalFoundationWidth, footpathHeight, chunkLength),
-            footpathMaterial, "Left_Footpath_Foundation");
+            footpathMaterial, "Left_Footpath_Foundation", "Road");
 
         // 3. Right Sidewalk & Foundation Floor
         float rightCenter = halfRoad + (totalFoundationWidth * 0.5f);
         CreateSlab(chunk.transform,
             new Vector3(rightCenter, footpathHeight * 0.5f, chunkLength * 0.5f),
             new Vector3(totalFoundationWidth, footpathHeight, chunkLength),
-            footpathMaterial, "Right_Footpath_Foundation");
+            footpathMaterial, "Right_Footpath_Foundation", "Road");
 
         // 4. Center Dashed Line
         float currentDashZ = 0.5f;
         while (currentDashZ + dashLength <= chunkLength)
         {
             Vector3 dashPos = new Vector3(0.075f, -0.07f, currentDashZ + (dashLength * 0.5f));
-            CreateSlab(chunk.transform, dashPos, new Vector3(dashWidth, 0.06f, dashLength), whiteLineMaterial, "White_Dash");
+            CreateSlab(chunk.transform, dashPos, new Vector3(dashWidth, 0.06f, dashLength), whiteLineMaterial, "White_Dash", "Road");
             currentDashZ += dashLength + dashGap;
         }
 
-        // 5. Buildings - Strictly Single Row, Ground Aligned, Zero Offset Deviation
+        // 5. Buildings - Automatically tagged as "Building"
         if (buildingPrefabs != null && buildingPrefabs.Length > 0 && buildingSpacingStepZ > 0.5f)
         {
             float chunkTargetZ = spawnZ + chunkLength;
@@ -168,7 +168,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
                     b.transform.localScale = b.transform.localScale * buildingScaleMultiplier;
                     b.transform.localRotation = Quaternion.Euler(0f, leftSideYRotation, 0f);
 
-                    // Compensate for any child root offset
+                    SetTagRecursively(b, "Building");
                     AlignBuilding(b, fixedLeftX, leftBuildingZ);
 
                     leftBuildingZ += (buildingSpacingStepZ * buildingScaleMultiplier);
@@ -189,7 +189,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
                     b.transform.localScale = b.transform.localScale * buildingScaleMultiplier;
                     b.transform.localRotation = Quaternion.Euler(0f, rightSideYRotation, 0f);
 
-                    // Compensate for any child root offset
+                    SetTagRecursively(b, "Building");
                     AlignBuilding(b, fixedRightX, rightBuildingZ);
 
                     rightBuildingZ += (buildingSpacingStepZ * buildingScaleMultiplier);
@@ -208,6 +208,15 @@ public class EndlessCorridorSpawner : MonoBehaviour
         spawnZ += chunkLength;
     }
 
+    private void SetTagRecursively(GameObject obj, string tag)
+    {
+        obj.tag = tag;
+        foreach (Transform child in obj.transform)
+        {
+            SetTagRecursively(child.gameObject, tag);
+        }
+    }
+
     private void AlignBuilding(GameObject obj, float targetX, float targetZ)
     {
         Renderer[] renderers = obj.GetComponentsInChildren<Renderer>();
@@ -223,12 +232,10 @@ public class EndlessCorridorSpawner : MonoBehaviour
             b.Encapsulate(renderers[i].bounds);
         }
 
-        // Calculate offset between bounding center/min and root transform
         Vector3 delta = obj.transform.position - b.center;
         float bottomY = b.min.y;
         float yAdjustment = footpathHeight - bottomY;
 
-        // Force the bounding center to sit exactly at targetX and targetZ, with base on footpath
         obj.transform.position = new Vector3(targetX + delta.x, obj.transform.position.y + yAdjustment, targetZ + delta.z);
     }
 
@@ -254,7 +261,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
         }
     }
 
-    private void CreateSlab(Transform parent, Vector3 localPos, Vector3 scale, Material mat, string name)
+    private void CreateSlab(Transform parent, Vector3 localPos, Vector3 scale, Material mat, string name, string tag)
     {
         GameObject tempCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
         Mesh mesh = tempCube.GetComponent<MeshFilter>().sharedMesh;
@@ -265,6 +272,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
         slab.transform.localPosition = localPos;
         slab.transform.localScale = scale;
         slab.layer = groundLayerIndex;
+        slab.tag = tag; // <--- EXPLICITLY STAMPS "Road" TAG HERE!
 
         MeshFilter mf = slab.AddComponent<MeshFilter>();
         mf.sharedMesh = mesh;

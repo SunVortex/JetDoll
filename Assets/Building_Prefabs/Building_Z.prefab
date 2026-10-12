@@ -552,7 +552,7 @@ GameObject:
   - component: {fileID: 2993925432560910671}
   m_Layer: 0
   m_Name: Building_Z
-  m_TagString: Untagged
+  m_TagString: Building
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0

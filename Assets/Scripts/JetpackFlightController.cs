@@ -5,14 +5,27 @@ public class JetpackFlightController : MonoBehaviour
 {
     public enum RollAxisType
     {
-        Z_Axis_Roll,   // Classic airplane drill roll (Default)
-        Y_Axis_Yaw,    // Flat spinning top / pirouette spin
-        X_Axis_Pitch   // Flip / loop spin
+        Z_Axis_Roll,
+        Y_Axis_Yaw,
+        X_Axis_Pitch
     }
 
     [Header("References")]
     [Tooltip("The camera that defines forward aim.")]
     public Transform cameraTransform;
+
+    [Header("Street Hazard (Altitude Danger Zone)")]
+    [Tooltip("Z distance where the safe Starting_Bridge ends and street danger begins.")]
+    public float safeBridgeZOffset = 20f;
+
+    [Tooltip("World Y height threshold. Falling below this on the street triggers damage.")]
+    public float streetDangerHeightY = 1.2f;
+
+    [Tooltip("Seconds spent fallen on the street before losing 1 heart.")]
+    public float roadDamageInterval = 1.5f;
+
+    [Tooltip("Grace period (seconds) after crashing into a building before another hit can register.")]
+    public float buildingHitCooldown = 1.0f;
 
     [Header("Particle Thruster Effects")]
     [Tooltip("Drag all 4 particle systems here (flames, sparks, etc.).")]
@@ -22,7 +35,7 @@ public class JetpackFlightController : MonoBehaviour
     public float throttleSpoolSpeed = 6.0f;
 
     [Header("Direct Speed Controls (Tunable in Inspector)")]
-    [Tooltip("Top flight speed (m/s) when holding RMB + W. Increase for faster flight!")]
+    [Tooltip("Top flight speed (m/s) when holding RMB + W.")]
     [Range(10f, 100f)]
     public float maxBoostSpeed = 35f;
 
@@ -34,18 +47,12 @@ public class JetpackFlightController : MonoBehaviour
     public float boostAcceleration = 22f;
 
     [Header("Barrel Roll Settings (A & D Keys)")]
-    [Tooltip("Choose which axis the jetpack spins around during a 360 roll!")]
     public RollAxisType rollAxis = RollAxisType.Z_Axis_Roll;
-
-    [Tooltip("Speed of the 360-degree spin in degrees per second (720 = completes in 0.5s).")]
     public float rollSpinSpeed = 720f;
 
     [Header("Mouse Aim Steering (ONLY WAY TO STEER)")]
-    [Tooltip("How fast the jetpack turns to follow the mouse aim.")]
     public float mouseTurnSpeed = 22f;
-    [Tooltip("Forward flight pitch when flying forward toward Z.")]
     public float flightPitch = 70f;
-    [Tooltip("Upright pitch when RMB is released.")]
     public float uprightPitch = 0f;
 
     [Header("Corridor Altitude Lock")]
@@ -71,6 +78,10 @@ public class JetpackFlightController : MonoBehaviour
     private float currentSpinAngle = 0f;
     private float targetSpinAngle = 0f;
     private bool isRolling = false;
+
+    // Hazard timers
+    private float roadContactTimer = 0f;
+    private float buildingCooldownTimer = 0f;
 
     private void Awake()
     {
@@ -110,28 +121,88 @@ public class JetpackFlightController : MonoBehaviour
         IsFullBurning = rmb && wKey;
         IsIgnited = rmb;
 
-        // Trigger Barrel Rolls with A & D
+        // Barrel Rolls with A & D
         if (rmb && !isRolling)
         {
-            if (Input.GetKeyDown(KeyCode.A))
-            {
-                // Left Spin
-                TriggerBarrelRoll(360f);
-            }
-            else if (Input.GetKeyDown(KeyCode.D))
-            {
-                // Right Spin
-                TriggerBarrelRoll(-360f);
-            }
+            if (Input.GetKeyDown(KeyCode.A)) TriggerBarrelRoll(360f);
+            else if (Input.GetKeyDown(KeyCode.D)) TriggerBarrelRoll(-360f);
         }
 
         HandleSmoothParticleThrottle();
+        HandleStreetHazardAndBuildings();
     }
 
     private void FixedUpdate()
     {
         jetRb.angularVelocity = Vector3.zero;
         HandleFlight();
+    }
+
+    // ==========================================
+    // HAZARD TIMERS (ROAD & BUILDINGS)
+    // ==========================================
+
+    private void HandleStreetHazardAndBuildings()
+    {
+        // 1. Building cooldown recovery
+        if (buildingCooldownTimer > 0f)
+        {
+            buildingCooldownTimer -= Time.deltaTime;
+        }
+
+        // 2. Road Hazard (Active ONLY once past the safe Starting_Bridge!)
+        bool hasLeftBridge = transform.position.z > safeBridgeZOffset;
+        bool isFallenOnStreet = transform.position.y <= streetDangerHeightY;
+
+        if (hasLeftBridge && isFallenOnStreet)
+        {
+            roadContactTimer += Time.deltaTime;
+
+            if (roadContactTimer >= roadDamageInterval)
+            {
+                roadContactTimer = 0f; // Reset ticker for next 1.5s interval
+
+                if (GameManager.Instance != null)
+                {
+                    GameManager.Instance.TakeDamage("Fell onto the Street!");
+                }
+
+                if (AudioManager.Instance != null)
+                {
+                    AudioManager.Instance.PlayGoalMiss();
+                }
+            }
+        }
+        else
+        {
+            // Reset timer immediately when safely in the air or on the bridge!
+            roadContactTimer = 0f;
+        }
+    }
+
+    // ==========================================
+    // BUILDING CRASH COLLISION LOGIC
+    // ==========================================
+
+    private void OnCollisionEnter(Collision collision)
+    {
+        if (collision.gameObject.CompareTag("Building") || collision.transform.root.CompareTag("Building"))
+        {
+            if (buildingCooldownTimer <= 0f)
+            {
+                buildingCooldownTimer = buildingHitCooldown;
+
+                if (GameManager.Instance != null)
+                {
+                    GameManager.Instance.TakeDamage("Crashed into a Building!");
+                }
+
+                if (AudioManager.Instance != null)
+                {
+                    AudioManager.Instance.PlayGoalMiss();
+                }
+            }
+        }
     }
 
     private void TriggerBarrelRoll(float degrees)
@@ -200,7 +271,7 @@ public class JetpackFlightController : MonoBehaviour
         float targetPitch = wKey ? flightPitch : 25f;
         currentPitch = Mathf.Lerp(currentPitch, targetPitch, 8f * Time.fixedDeltaTime);
 
-        // 4. BARREL ROLL SPIN ANIMATION (ALONG CHOSEN AXIS)
+        // 4. BARREL ROLL SPIN ANIMATION
         if (isRolling)
         {
             float step = Mathf.Sign(targetSpinAngle) * rollSpinSpeed * Time.fixedDeltaTime;
@@ -210,7 +281,7 @@ public class JetpackFlightController : MonoBehaviour
             {
                 currentSpinAngle = 0f;
                 targetSpinAngle = 0f;
-                isRolling = false; // Finished full 360 spin!
+                isRolling = false;
             }
         }
         else
@@ -218,30 +289,21 @@ public class JetpackFlightController : MonoBehaviour
             currentSpinAngle = Mathf.Lerp(currentSpinAngle, 0f, 12f * Time.fixedDeltaTime);
         }
 
-        // Build spin offset based on selected axis
         Vector3 spinEuler = Vector3.zero;
         switch (rollAxis)
         {
-            case RollAxisType.Z_Axis_Roll:
-                spinEuler = new Vector3(0f, 0f, currentSpinAngle);
-                break;
-            case RollAxisType.Y_Axis_Yaw:
-                spinEuler = new Vector3(0f, currentSpinAngle, 0f);
-                break;
-            case RollAxisType.X_Axis_Pitch:
-                spinEuler = new Vector3(currentSpinAngle, 0f, 0f);
-                break;
+            case RollAxisType.Z_Axis_Roll: spinEuler = new Vector3(0f, 0f, currentSpinAngle); break;
+            case RollAxisType.Y_Axis_Yaw: spinEuler = new Vector3(0f, currentSpinAngle, 0f); break;
+            case RollAxisType.X_Axis_Pitch: spinEuler = new Vector3(currentSpinAngle, 0f, 0f); break;
         }
 
-        // 5. MOUSE AIM DIRECTION (THE ONLY STEERING METHOD)
+        // 5. MOUSE AIM DIRECTION
         Vector3 rawAim = cameraTransform != null ? cameraTransform.forward : Vector3.forward;
         Vector3 horizontalForward = Vector3.ProjectOnPlane(rawAim, Vector3.up).normalized;
 
         Quaternion aimRotation = Quaternion.LookRotation(horizontalForward, Vector3.up);
         Quaternion stanceRotation = Quaternion.Euler(currentPitch, 0f, 0f);
         Quaternion spinRotation = Quaternion.Euler(spinEuler);
-
-        // Final combined rotation
         Quaternion finalTargetRot = aimRotation * stanceRotation * spinRotation;
 
         jetRb.MoveRotation(Quaternion.Slerp(jetRb.rotation, finalTargetRot, mouseTurnSpeed * Time.fixedDeltaTime));
