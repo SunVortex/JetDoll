@@ -440,10 +440,10 @@ MonoBehaviour:
   normalColor: {r: 1, g: 1, b: 1, a: 1}
   successColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
   errorColor: {r: 1, g: 0, b: 0, a: 1}
-  successIntensity: 5
-  pulseSpeed: 3.5
+  successIntensity: 4.29
+  pulseSpeed: 8.16
   minIntensity: 1
-  maxIntensity: 4
+  maxIntensity: 2.68
 --- !u!1 &8279961875415771215
 GameObject:
   m_ObjectHideFlags: 0

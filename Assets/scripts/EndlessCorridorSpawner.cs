@@ -7,20 +7,25 @@ public class EndlessCorridorSpawner : MonoBehaviour
     [Tooltip("Drag Jetpack_Vehicle here.")]
     public Transform playerTransform;
 
+    [Header("Alignment Anchors")]
+    [Tooltip("Drag 'LEFT BUILDINGS' from Hierarchy here.")]
+    public Transform leftBuildingAnchor;
+
+    [Tooltip("Drag 'RIGHT BUILDINGS' from Hierarchy here.")]
+    public Transform rightBuildingAnchor;
+
     [Header("Rooftop Runway Offset")]
-    [Tooltip("Starting Z distance where the infinite street begins (after the rooftop ledge drop).")]
-    public float startOffsetZ = 25f;
+    [Tooltip("Starting Z distance where procedural chunks begin.")]
+    public float startOffsetZ = 20f;
 
     [Header("Road & Sidewalk Geometry")]
     public float chunkLength = 100f;
     public float roadWidth = 5.81f;
     public float sidewalkWidth = 4.2f;
-    public float underBuildingSlabWidth = 35f;
-    public float footpathHeight = 0.15f;
 
-    [Header("Invisible Boundary Walls")]
-    public float wallColliderHeight = 25f;
-    public float wallColliderThickness = 1.0f;
+    [Tooltip("Width of foundation slab behind buildings.")]
+    public float underBuildingSlabWidth = 8.0f;
+    public float footpathHeight = 0.15f;
 
     [Header("Middle White Dashes")]
     public float dashWidth = 0.15f;
@@ -34,8 +39,13 @@ public class EndlessCorridorSpawner : MonoBehaviour
 
     [Header("Building Configuration")]
     public GameObject[] buildingPrefabs;
-    public float buildingSpacingZ = 5.0f;
-    public float buildingFrontOffsetX = 2.5f;
+
+    [Tooltip("Distance along Z between consecutive buildings to keep them side-by-side without gaps.")]
+    public float buildingSpacingStepZ = 4.5f;
+
+    [Tooltip("Global scale multiplier for spawned buildings.")]
+    public float buildingScaleMultiplier = 1.3f;
+
     public float leftSideYRotation = 0f;
     public float rightSideYRotation = 180f;
 
@@ -43,14 +53,14 @@ public class EndlessCorridorSpawner : MonoBehaviour
     [Tooltip("Drag your Target_Frame prefab here.")]
     public GameObject[] obstaclePrefabs;
 
-    [Tooltip("Fixed flight height of all frames above the road (No more random Y!).")]
+    [Tooltip("Fixed flight height of all frames above the road.")]
     public float fixedFrameHeightY = 3.8f;
 
     [Tooltip("Z distance step between consecutive frames.")]
     public float distanceBetweenFrames = 30f;
 
     [Tooltip("Safe starting distance before the first frame appears.")]
-    public float firstFrameStartDistance = 60f;
+    public float firstFrameStartDistance = 40f;
 
     [Header("View & Distance Buffer")]
     public int initialChunksOnScreen = 8;
@@ -65,7 +75,6 @@ public class EndlessCorridorSpawner : MonoBehaviour
 
     private List<GameObject> activeChunks = new List<GameObject>();
 
-    // 3 Horizontal lanes (Left, Center, Right) across the street
     private readonly float[] gridLanesX = new float[] { -2.1f, 0.0f, 2.1f };
 
     private void Start()
@@ -77,7 +86,6 @@ public class EndlessCorridorSpawner : MonoBehaviour
             else if (Camera.main != null) playerTransform = Camera.main.transform;
         }
 
-        // Cache Ground Layer
         groundLayerIndex = LayerMask.NameToLayer("Ground");
         if (groundLayerIndex == -1) groundLayerIndex = 0;
 
@@ -108,14 +116,14 @@ public class EndlessCorridorSpawner : MonoBehaviour
     {
         GameObject chunk = new GameObject("Chunk_" + Mathf.RoundToInt(spawnZ));
         chunk.transform.SetParent(transform);
-        chunk.transform.position = new Vector3(0, 0, spawnZ);
+        chunk.transform.position = new Vector3(0f, 0f, spawnZ);
 
         float halfRoad = roadWidth * 0.5f;
         float totalFoundationWidth = sidewalkWidth + underBuildingSlabWidth;
 
-        // 1. Center Asphalt Road (Set to Ground layer for hover raycasts)
+        // 1. Center Asphalt Road
         CreateSlab(chunk.transform,
-            new Vector3(0, -0.08f, chunkLength * 0.5f),
+            new Vector3(0f, -0.08f, chunkLength * 0.5f),
             new Vector3(roadWidth, 0.05f, chunkLength),
             roadMaterial, "Road");
 
@@ -134,7 +142,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
             footpathMaterial, "Right_Footpath_Foundation");
 
         // 4. Center Dashed Line
-        float currentDashZ = dashGap * 0.5f;
+        float currentDashZ = 0.5f;
         while (currentDashZ + dashLength <= chunkLength)
         {
             Vector3 dashPos = new Vector3(0.075f, -0.07f, currentDashZ + (dashLength * 0.5f));
@@ -142,47 +150,86 @@ public class EndlessCorridorSpawner : MonoBehaviour
             currentDashZ += dashLength + dashGap;
         }
 
-        // 5. Invisible Boundary Colliders
-        float wallBoundaryX = halfRoad + sidewalkWidth;
-        CreateInvisibleWall(chunk.transform, new Vector3(-wallBoundaryX, wallColliderHeight * 0.5f, chunkLength * 0.5f), "Left_Boundary_Collider");
-        CreateInvisibleWall(chunk.transform, new Vector3(wallBoundaryX, wallColliderHeight * 0.5f, chunkLength * 0.5f), "Right_Boundary_Collider");
-
-        // 6. Buildings
-        if (buildingPrefabs != null && buildingPrefabs.Length > 0 && buildingSpacingZ > 0.5f)
+        // 5. Buildings - Strictly Single Row, Ground Aligned, Zero Offset Deviation
+        if (buildingPrefabs != null && buildingPrefabs.Length > 0 && buildingSpacingStepZ > 0.5f)
         {
             float chunkTargetZ = spawnZ + chunkLength;
-            float leftPlacementX = -halfRoad - sidewalkWidth - buildingFrontOffsetX;
-            float rightPlacementX = halfRoad + sidewalkWidth + buildingFrontOffsetX;
-            float buildingBaseY = footpathHeight;
 
+            float fixedLeftX = (leftBuildingAnchor != null) ? leftBuildingAnchor.position.x : (-halfRoad - sidewalkWidth);
+            float fixedRightX = (rightBuildingAnchor != null) ? rightBuildingAnchor.position.x : (halfRoad + sidewalkWidth);
+
+            // Left Row
             while (leftBuildingZ < chunkTargetZ)
             {
-                float placeZ = leftBuildingZ + (buildingSpacingZ * 0.5f);
                 GameObject prefab = buildingPrefabs[Random.Range(0, buildingPrefabs.Length)];
+                if (prefab != null)
+                {
+                    GameObject b = Instantiate(prefab, chunk.transform);
+                    b.transform.localScale = b.transform.localScale * buildingScaleMultiplier;
+                    b.transform.localRotation = Quaternion.Euler(0f, leftSideYRotation, 0f);
 
-                GameObject b = Instantiate(prefab, new Vector3(leftPlacementX, buildingBaseY, placeZ), Quaternion.Euler(0, leftSideYRotation, 0));
-                b.transform.SetParent(chunk.transform);
+                    // Compensate for any child root offset
+                    AlignBuilding(b, fixedLeftX, leftBuildingZ);
 
-                leftBuildingZ += buildingSpacingZ;
+                    leftBuildingZ += (buildingSpacingStepZ * buildingScaleMultiplier);
+                }
+                else
+                {
+                    leftBuildingZ += 4.5f;
+                }
             }
 
+            // Right Row
             while (rightBuildingZ < chunkTargetZ)
             {
-                float placeZ = rightBuildingZ + (buildingSpacingZ * 0.5f);
                 GameObject prefab = buildingPrefabs[Random.Range(0, buildingPrefabs.Length)];
+                if (prefab != null)
+                {
+                    GameObject b = Instantiate(prefab, chunk.transform);
+                    b.transform.localScale = b.transform.localScale * buildingScaleMultiplier;
+                    b.transform.localRotation = Quaternion.Euler(0f, rightSideYRotation, 0f);
 
-                GameObject b = Instantiate(prefab, new Vector3(rightPlacementX, buildingBaseY, placeZ), Quaternion.Euler(0, rightSideYRotation, 0));
-                b.transform.SetParent(chunk.transform);
+                    // Compensate for any child root offset
+                    AlignBuilding(b, fixedRightX, rightBuildingZ);
 
-                rightBuildingZ += buildingSpacingZ;
+                    rightBuildingZ += (buildingSpacingStepZ * buildingScaleMultiplier);
+                }
+                else
+                {
+                    rightBuildingZ += 4.5f;
+                }
             }
         }
 
-        // 7. Spawn Target Frames at Fixed Height Across Left/Center/Right Lanes
+        // 6. Target Frames
         SpawnTargetFramesInChunk(chunk.transform);
 
         activeChunks.Add(chunk);
         spawnZ += chunkLength;
+    }
+
+    private void AlignBuilding(GameObject obj, float targetX, float targetZ)
+    {
+        Renderer[] renderers = obj.GetComponentsInChildren<Renderer>();
+        if (renderers.Length == 0)
+        {
+            obj.transform.position = new Vector3(targetX, footpathHeight, targetZ);
+            return;
+        }
+
+        Bounds b = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++)
+        {
+            b.Encapsulate(renderers[i].bounds);
+        }
+
+        // Calculate offset between bounding center/min and root transform
+        Vector3 delta = obj.transform.position - b.center;
+        float bottomY = b.min.y;
+        float yAdjustment = footpathHeight - bottomY;
+
+        // Force the bounding center to sit exactly at targetX and targetZ, with base on footpath
+        obj.transform.position = new Vector3(targetX + delta.x, obj.transform.position.y + yAdjustment, targetZ + delta.z);
     }
 
     private void SpawnTargetFramesInChunk(Transform chunkParent)
@@ -193,10 +240,7 @@ public class EndlessCorridorSpawner : MonoBehaviour
 
         while (nextFrameZ < chunkEnd)
         {
-            // Pick a horizontal lane (Left, Center, Right)
             float posX = gridLanesX[Random.Range(0, gridLanesX.Length)];
-
-            // FIXED HEIGHT: Always spawns level with your flight cruise line!
             float posY = fixedFrameHeightY;
 
             GameObject framePrefab = obstaclePrefabs[Random.Range(0, obstaclePrefabs.Length)];
@@ -208,16 +252,6 @@ public class EndlessCorridorSpawner : MonoBehaviour
 
             nextFrameZ += distanceBetweenFrames;
         }
-    }
-
-    private void CreateInvisibleWall(Transform parent, Vector3 localPos, string wallName)
-    {
-        GameObject wall = new GameObject(wallName);
-        wall.transform.SetParent(parent, false);
-        wall.transform.localPosition = localPos;
-
-        BoxCollider col = wall.AddComponent<BoxCollider>();
-        col.size = new Vector3(wallColliderThickness, wallColliderHeight, chunkLength);
     }
 
     private void CreateSlab(Transform parent, Vector3 localPos, Vector3 scale, Material mat, string name)
