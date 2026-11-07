@@ -19,6 +19,7 @@ public class TargetFrame : MonoBehaviour
     private bool isFaulted = false;
     private Material[] borderMaterials;
     private Transform playerTransform;
+    private JetpackFlightController playerFlightController;
 
     private void Awake()
     {
@@ -38,8 +39,8 @@ public class TargetFrame : MonoBehaviour
 
     private void Start()
     {
-        JetpackFlightController player = FindAnyObjectByType<JetpackFlightController>();
-        if (player != null) playerTransform = player.transform;
+        playerFlightController = FindAnyObjectByType<JetpackFlightController>();
+        if (playerFlightController != null) playerTransform = playerFlightController.transform;
         else if (Camera.main != null) playerTransform = Camera.main.transform;
     }
 
@@ -84,7 +85,12 @@ public class TargetFrame : MonoBehaviour
 
         if (glassPane != null) glassPane.SetActive(false);
 
-        // Sound & Score
+        // SLINGSHOT BOOST: Triggers immediate speed surge on the jetpack!
+        if (playerFlightController != null)
+        {
+            playerFlightController.TriggerGateBoost();
+        }
+
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGoalSuccess();
         if (GameManager.Instance != null) GameManager.Instance.OnFrameSuccess();
     }
@@ -97,7 +103,6 @@ public class TargetFrame : MonoBehaviour
 
         ApplyEmissionColor(errorColor * 5.0f);
 
-        // Sound & Damage
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGoalMiss();
         if (GameManager.Instance != null) GameManager.Instance.TakeDamage("Hit Frame Border!");
     }
@@ -109,7 +114,6 @@ public class TargetFrame : MonoBehaviour
 
         ApplyEmissionColor(errorColor * 4.0f);
 
-        // Sound & Damage
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGoalMiss();
         if (GameManager.Instance != null) GameManager.Instance.TakeDamage("Missed Frame Target!");
     }

@@ -11,47 +11,36 @@ public class JetpackFlightController : MonoBehaviour
     }
 
     [Header("References")]
-    [Tooltip("The camera that defines forward aim.")]
     public Transform cameraTransform;
 
-    [Header("Street Hazard (Altitude Danger Zone)")]
-    [Tooltip("Z distance where the safe Starting_Bridge ends and street danger begins.")]
-    public float safeBridgeZOffset = 20f;
+    [Header("Streamlined Touch Controls (Canvas References)")]
+    public TouchAimZone touchAimBoostZone;
+    public MobileTouchButton touchRollLeftButton;
+    public MobileTouchButton touchRollRightButton;
 
-    [Tooltip("World Y height threshold. Falling below this on the street triggers damage.")]
-    public float streetDangerHeightY = 1.2f;
+    [Header("Flight Speed")]
+    [Tooltip("Base boost speed (m/s) when holding RMB or Right Touch Screen.")]
+    public float boostFlightSpeed = 38f;
+    public float boostAcceleration = 26f;
 
-    [Tooltip("Seconds spent fallen on the street before losing 1 heart.")]
-    public float roadDamageInterval = 1.5f;
+    [Header("Window Gate Slingshot Boost (Tunable in Inspector)")]
+    [Tooltip("Extra bonus speed (m/s) added on top when flying cleanly through a window gate!")]
+    public float gateBoostBonusSpeed = 18f;
 
-    [Tooltip("Grace period (seconds) after crashing into a building before another hit can register.")]
-    public float buildingHitCooldown = 1.0f;
+    [Tooltip("Duration (seconds) the slingshot speed surge lasts before smoothly decaying.")]
+    public float gateBoostDuration = 1.4f;
 
     [Header("Particle Thruster Effects")]
-    [Tooltip("Drag all 4 particle systems here (flames, sparks, etc.).")]
     public ParticleSystem[] thrusterParticles;
-    public float cruiseEmissionRate = 25f;
-    public float boostEmissionRate = 75f;
+    public float boostEmissionRate = 85f;
     public float throttleSpoolSpeed = 6.0f;
 
-    [Header("Direct Speed Controls (Tunable in Inspector)")]
-    [Tooltip("Top flight speed (m/s) when holding RMB + W.")]
-    [Range(10f, 100f)]
-    public float maxBoostSpeed = 35f;
-
-    [Tooltip("Gentle cruise speed (m/s) when holding ONLY RMB.")]
-    [Range(2f, 30f)]
-    public float idleCruiseSpeed = 10f;
-
-    [Tooltip("How fast the jetpack reaches top speed (responsiveness).")]
-    public float boostAcceleration = 22f;
-
-    [Header("Barrel Roll Settings (A & D Keys)")]
+    [Header("Barrel Roll Settings")]
     public RollAxisType rollAxis = RollAxisType.Z_Axis_Roll;
     public float rollSpinSpeed = 720f;
 
-    [Header("Mouse Aim Steering (ONLY WAY TO STEER)")]
-    public float mouseTurnSpeed = 22f;
+    [Header("Aim Steering & Stance")]
+    public float turnSpeed = 22f;
     public float flightPitch = 70f;
     public float uprightPitch = 0f;
 
@@ -61,10 +50,15 @@ public class JetpackFlightController : MonoBehaviour
     public float climbSpeed = 6.0f;
 
     [Header("Air Drag & Descent")]
-    public float brakeDrag = 3.0f;
+    public float brakeDrag = 3.2f;
     public float flightDrag = 0.8f;
 
-    // Public state for Camera
+    [Header("Hazard Damage Timers")]
+    public float safeBridgeZOffset = 20f;
+    public float streetDangerHeightY = 1.2f;
+    public float roadDamageInterval = 1.5f;
+    public float buildingHitCooldown = 1.0f;
+
     public bool IsFullBurning { get; private set; }
     public bool IsIgnited { get; private set; }
 
@@ -74,14 +68,16 @@ public class JetpackFlightController : MonoBehaviour
     private float startingFloorY = 0f;
     private float currentEmissionRate = 0f;
 
-    // Barrel roll spin state
     private float currentSpinAngle = 0f;
     private float targetSpinAngle = 0f;
     private bool isRolling = false;
 
-    // Hazard timers
     private float roadContactTimer = 0f;
     private float buildingCooldownTimer = 0f;
+
+    // Window Gate Slingshot state
+    private float currentGateBonus = 0f;
+    private float gateBonusTimer = 0f;
 
     private void Awake()
     {
@@ -116,18 +112,24 @@ public class JetpackFlightController : MonoBehaviour
 
     private void Update()
     {
-        bool rmb = Input.GetMouseButton(1);
-        bool wKey = Input.GetKey(KeyCode.W);
-        IsFullBurning = rmb && wKey;
-        IsIgnited = rmb;
+        // 1. UNIFIED IGNITION & BOOST
+        bool pcIgnite = Input.GetMouseButton(1);
+        bool mobileIgnite = touchAimBoostZone != null && touchAimBoostZone.IsHolding;
 
-        // Barrel Rolls with A & D
-        if (rmb && !isRolling)
+        IsIgnited = pcIgnite || mobileIgnite;
+        IsFullBurning = IsIgnited;
+
+        // 2. UNIFIED BARREL ROLLS
+        if (IsIgnited && !isRolling)
         {
-            if (Input.GetKeyDown(KeyCode.A)) TriggerBarrelRoll(360f);
-            else if (Input.GetKeyDown(KeyCode.D)) TriggerBarrelRoll(-360f);
+            bool rollLeft = Input.GetKeyDown(KeyCode.A) || (touchRollLeftButton != null && touchRollLeftButton.ConsumeTap());
+            bool rollRight = Input.GetKeyDown(KeyCode.D) || (touchRollRightButton != null && touchRollRightButton.ConsumeTap());
+
+            if (rollLeft) TriggerBarrelRoll(360f);
+            else if (rollRight) TriggerBarrelRoll(-360f);
         }
 
+        HandleGateBoostTimer();
         HandleSmoothParticleThrottle();
         HandleStreetHazardAndBuildings();
     }
@@ -138,51 +140,54 @@ public class JetpackFlightController : MonoBehaviour
         HandleFlight();
     }
 
-    // ==========================================
-    // HAZARD TIMERS (ROAD & BUILDINGS)
-    // ==========================================
+    /// <summary>
+    /// Called automatically whenever passing through a window glass target!
+    /// </summary>
+    public void TriggerGateBoost()
+    {
+        currentGateBonus = gateBoostBonusSpeed;
+        gateBonusTimer = gateBoostDuration;
+    }
+
+    private void HandleGateBoostTimer()
+    {
+        if (gateBonusTimer > 0f)
+        {
+            gateBonusTimer -= Time.deltaTime;
+            // Smooth exponential decay back down
+            currentGateBonus = Mathf.Lerp(0f, gateBoostBonusSpeed, gateBonusTimer / gateBoostDuration);
+        }
+        else
+        {
+            currentGateBonus = 0f;
+        }
+    }
 
     private void HandleStreetHazardAndBuildings()
     {
-        // 1. Building cooldown recovery
         if (buildingCooldownTimer > 0f)
         {
             buildingCooldownTimer -= Time.deltaTime;
         }
 
-        // 2. Road Hazard (Active ONLY once past the safe Starting_Bridge!)
         bool hasLeftBridge = transform.position.z > safeBridgeZOffset;
         bool isFallenOnStreet = transform.position.y <= streetDangerHeightY;
 
         if (hasLeftBridge && isFallenOnStreet)
         {
             roadContactTimer += Time.deltaTime;
-
             if (roadContactTimer >= roadDamageInterval)
             {
-                roadContactTimer = 0f; // Reset ticker for next 1.5s interval
-
-                if (GameManager.Instance != null)
-                {
-                    GameManager.Instance.TakeDamage("Fell onto the Street!");
-                }
-
-                if (AudioManager.Instance != null)
-                {
-                    AudioManager.Instance.PlayGoalMiss();
-                }
+                roadContactTimer = 0f;
+                if (GameManager.Instance != null) GameManager.Instance.TakeDamage("Fell onto the Street!");
+                if (AudioManager.Instance != null) AudioManager.Instance.PlayGoalMiss();
             }
         }
         else
         {
-            // Reset timer immediately when safely in the air or on the bridge!
             roadContactTimer = 0f;
         }
     }
-
-    // ==========================================
-    // BUILDING CRASH COLLISION LOGIC
-    // ==========================================
 
     private void OnCollisionEnter(Collision collision)
     {
@@ -191,16 +196,8 @@ public class JetpackFlightController : MonoBehaviour
             if (buildingCooldownTimer <= 0f)
             {
                 buildingCooldownTimer = buildingHitCooldown;
-
-                if (GameManager.Instance != null)
-                {
-                    GameManager.Instance.TakeDamage("Crashed into a Building!");
-                }
-
-                if (AudioManager.Instance != null)
-                {
-                    AudioManager.Instance.PlayGoalMiss();
-                }
+                if (GameManager.Instance != null) GameManager.Instance.TakeDamage("Crashed into a Building!");
+                if (AudioManager.Instance != null) AudioManager.Instance.PlayGoalMiss();
             }
         }
     }
@@ -214,12 +211,9 @@ public class JetpackFlightController : MonoBehaviour
 
     private void HandleSmoothParticleThrottle()
     {
-        float targetRate = 0f;
-
-        if (IsFullBurning) targetRate = boostEmissionRate;
-        else if (IsIgnited) targetRate = cruiseEmissionRate;
-        else targetRate = 0f;
-
+        // Flames flare up even stronger during a gate slingshot boost!
+        bool isAnyBoostActive = IsFullBurning || currentGateBonus > 1.0f;
+        float targetRate = isAnyBoostActive ? boostEmissionRate : 0f;
         currentEmissionRate = Mathf.Lerp(currentEmissionRate, targetRate, throttleSpoolSpeed * Time.deltaTime);
 
         if (thrusterParticles != null)
@@ -243,11 +237,8 @@ public class JetpackFlightController : MonoBehaviour
 
     private void HandleFlight()
     {
-        bool rmb = Input.GetMouseButton(1);
-        bool wKey = Input.GetKey(KeyCode.W);
-
-        // 1. ENGINE OFF / DESCENT
-        if (!rmb)
+        // 1. ENGINE OFF / BRAKE (unless a gate boost slingshots you forward!)
+        if (!IsIgnited && currentGateBonus <= 0.1f)
         {
             SetRagdollGravity(true);
             jetRb.useGravity = true;
@@ -258,20 +249,17 @@ public class JetpackFlightController : MonoBehaviour
             isRolling = false;
 
             Quaternion landRot = Quaternion.Euler(currentPitch, transform.eulerAngles.y, 0f);
-            jetRb.MoveRotation(Quaternion.Slerp(jetRb.rotation, landRot, mouseTurnSpeed * Time.fixedDeltaTime));
+            jetRb.MoveRotation(Quaternion.Slerp(jetRb.rotation, landRot, turnSpeed * Time.fixedDeltaTime));
             return;
         }
 
-        // 2. ENGINE ACTIVE
+        // 2. ENGINE ACTIVE / GATE BOOST
         SetRagdollGravity(false);
         jetRb.useGravity = false;
         ApplyDrag(flightDrag);
 
-        // 3. PITCH STANCE
-        float targetPitch = wKey ? flightPitch : 25f;
-        currentPitch = Mathf.Lerp(currentPitch, targetPitch, 8f * Time.fixedDeltaTime);
+        currentPitch = Mathf.Lerp(currentPitch, flightPitch, 8f * Time.fixedDeltaTime);
 
-        // 4. BARREL ROLL SPIN ANIMATION
         if (isRolling)
         {
             float step = Mathf.Sign(targetSpinAngle) * rollSpinSpeed * Time.fixedDeltaTime;
@@ -297,7 +285,6 @@ public class JetpackFlightController : MonoBehaviour
             case RollAxisType.X_Axis_Pitch: spinEuler = new Vector3(currentSpinAngle, 0f, 0f); break;
         }
 
-        // 5. MOUSE AIM DIRECTION
         Vector3 rawAim = cameraTransform != null ? cameraTransform.forward : Vector3.forward;
         Vector3 horizontalForward = Vector3.ProjectOnPlane(rawAim, Vector3.up).normalized;
 
@@ -306,9 +293,9 @@ public class JetpackFlightController : MonoBehaviour
         Quaternion spinRotation = Quaternion.Euler(spinEuler);
         Quaternion finalTargetRot = aimRotation * stanceRotation * spinRotation;
 
-        jetRb.MoveRotation(Quaternion.Slerp(jetRb.rotation, finalTargetRot, mouseTurnSpeed * Time.fixedDeltaTime));
+        jetRb.MoveRotation(Quaternion.Slerp(jetRb.rotation, finalTargetRot, turnSpeed * Time.fixedDeltaTime));
 
-        // 6. ALTITUDE LOCK
+        // Altitude lock
         float currentHeightAboveFloor = transform.position.y - startingFloorY;
         float targetYVelocity = 0f;
 
@@ -316,8 +303,9 @@ public class JetpackFlightController : MonoBehaviour
         else if (currentHeightAboveFloor > maxCeilingHeight) targetYVelocity = -climbSpeed;
         else targetYVelocity = 0f;
 
-        // 7. DIRECT VELOCITY FORWARD
-        float targetSpeed = wKey ? maxBoostSpeed : idleCruiseSpeed;
+        // COMBINED SPEED: Base forward boost + Gate slingshot bonus!
+        float activeBaseSpeed = IsFullBurning ? boostFlightSpeed : 0f;
+        float targetSpeed = activeBaseSpeed + currentGateBonus;
         Vector3 targetHorizontalVelocity = horizontalForward * targetSpeed;
 
 #if UNITY_6000_0_OR_NEWER

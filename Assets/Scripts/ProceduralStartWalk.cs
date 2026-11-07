@@ -10,27 +10,23 @@ public class ProceduralStartWalk : MonoBehaviour
     [Tooltip("Assign mixamorig:RightLeg (Right Knee / Calf).")]
     public Rigidbody rightKneeRb;
 
-    [Header("Walk & Knee Action Settings (Hold W)")]
-    [Tooltip("Forward walk speed across the rooftop.")]
-    public float walkSpeed = 4.8f;
-    [Tooltip("How fast the legs pump back and forth.")]
+    [Header("Mobile Walk Button")]
+    [Tooltip("Drag the on-screen UP button from Canvas here (Auto-hides in the air!).")]
+    public MobileTouchButton walkUpButton;
+
+    [Header("Launch Pad Detection")]
+    public LayerMask launchPadLayer = ~0;
+    public float padCheckDistance = 8.0f;
+
+    [Header("Walk & Knee Action Settings")]
+    public float walkSpeed = 5.0f;
     public float stepFrequency = 11f;
-    [Tooltip("Forward kick strength of the knees.")]
     public float kneeKickPower = 35f;
-    [Tooltip("Upward lift to bend knees and clear feet off the floor.")]
     public float footLiftPower = 15f;
 
-    [Header("Smooth Step Bobbing (Zero Jitter)")]
-    [Tooltip("Height of the vertical body bobbing with each step.")]
+    [Header("Smooth Step Bobbing")]
     public float stepBobAmount = 0.06f;
-    [Tooltip("Stiffness of the vertical standing suspension.")]
     public float standSuspensionStrength = 22f;
-
-    [Header("Ledge / Ground Detection")]
-    [Tooltip("Downward distance to detect the rooftop floor.")]
-    public float groundCheckDistance = 3.5f;
-    [Tooltip("Assign the Ground layer here.")]
-    public LayerMask groundLayer = ~0;
 
     public bool HasLeftRooftop { get; private set; } = false;
 
@@ -62,14 +58,30 @@ public class ProceduralStartWalk : MonoBehaviour
     {
         if (HasLeftRooftop) return;
 
-        // WALKING LOCKED DURING MAIN MENU
+        // Block walking while on Main Menu
         if (GameManager.Instance != null && GameManager.Instance.currentState != GameManager.GameState.Playing)
         {
             isWalking = false;
             return;
         }
 
-        isWalking = Input.GetKey(KeyCode.W);
+        // Direct flight takeover: holding RMB on PC or right screen on mobile launches flight
+        bool wantsFlight = Input.GetMouseButton(1);
+        if (flightController != null && flightController.touchAimBoostZone != null && flightController.touchAimBoostZone.IsHolding)
+        {
+            wantsFlight = true;
+        }
+
+        if (wantsFlight)
+        {
+            LaunchIntoFlight();
+            return;
+        }
+
+        // UNIFIED WALK INPUT: W on PC -OR- UP Button on Mobile
+        bool pcWalk = Input.GetKey(KeyCode.W);
+        bool mobileWalk = walkUpButton != null && walkUpButton.IsPressed;
+        isWalking = pcWalk || mobileWalk;
     }
 
     private void FixedUpdate()
@@ -77,12 +89,12 @@ public class ProceduralStartWalk : MonoBehaviour
         if (HasLeftRooftop) return;
 
         Ray ray = new Ray(transform.position, Vector3.down);
-        bool groundDetected = Physics.Raycast(ray, groundCheckDistance, groundLayer);
+        bool padDetected = Physics.Raycast(ray, padCheckDistance, launchPadLayer);
 
-        if (!groundDetected)
+        if (!padDetected)
         {
             offLedgeFrames++;
-            if (offLedgeFrames >= 3)
+            if (offLedgeFrames >= 6)
             {
                 LaunchIntoFlight();
                 return;
@@ -155,7 +167,15 @@ public class ProceduralStartWalk : MonoBehaviour
 
     private void LaunchIntoFlight()
     {
+        if (HasLeftRooftop) return;
         HasLeftRooftop = true;
+
+        // AUTO-HIDE: Turn OFF the UP walk button so it vanishes in the air!
+        if (walkUpButton != null)
+        {
+            walkUpButton.gameObject.SetActive(false);
+        }
+
         jetRb.constraints = RigidbodyConstraints.None;
 
         if (flightController != null)

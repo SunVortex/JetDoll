@@ -4,24 +4,25 @@ using UnityEngine;
 public class FreeFlightCamera : MonoBehaviour
 {
     [Header("Tracking Target")]
-    [Tooltip("Drag Jetpack_Vehicle here.")]
     public Transform target;
-    [Tooltip("Reference to the flight controller (auto-finds if empty).")]
     public FreeFlightJetpack jetpackController;
 
+    [Header("Mobile Swipe Area Reference")]
+    [Tooltip("Drag the right-side TouchCameraSwipeArea from Canvas here.")]
+    public TouchCameraSwipeArea touchSwipeArea;
+
     [Header("Camera Rig Positioning")]
-    [Tooltip("Distance behind the jetpack.")]
     public float distance = 4.5f;
-    [Tooltip("Height offset above the jetpack.")]
     public float height = 1.0f;
-    [Tooltip("Smooth follow catch-up speed.")]
     public float followSpeed = 18f;
 
-    [Header("Free 360 Mouse Orbit")]
+    [Header("360 Orbit Sensitivity")]
     public float mouseSensitivityX = 3.0f;
     public float mouseSensitivityY = 2.5f;
-    public float minPitchAngle = -75f; // Look straight up into sky
-    public float maxPitchAngle = 75f;  // Look straight down at ground
+    public float touchSensitivityX = 1.2f;
+    public float touchSensitivityY = 1.0f;
+    public float minPitchAngle = -75f;
+    public float maxPitchAngle = 75f;
 
     [Header("Speed Juice (Dynamic FOV)")]
     public float normalFOV = 60f;
@@ -46,9 +47,14 @@ public class FreeFlightCamera : MonoBehaviour
             }
         }
 
-        // Lock mouse into center of screen
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        // Lock cursor on PC standalone; keep free on Mobile
+#if !UNITY_ANDROID && !UNITY_IOS
+        if (!Application.isMobilePlatform)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
+#endif
     }
 
     private void Start()
@@ -63,7 +69,7 @@ public class FreeFlightCamera : MonoBehaviour
 
     private void Update()
     {
-        // Toggle cursor lock with Escape / Left Click
+#if !UNITY_ANDROID && !UNITY_IOS
         if (Input.GetKeyDown(KeyCode.Escape))
         {
             Cursor.lockState = CursorLockMode.None;
@@ -74,30 +80,39 @@ public class FreeFlightCamera : MonoBehaviour
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
+#endif
 
-        HandleMouseLook();
+        HandleCameraLook();
         HandleDynamicFOV();
     }
 
     private void LateUpdate()
     {
         if (target == null) return;
-
         UpdateCameraTransform();
     }
 
-    private void HandleMouseLook()
+    private void HandleCameraLook()
     {
-        if (Cursor.lockState != CursorLockMode.Locked) return;
+        float lookX = 0f;
+        float lookY = 0f;
 
-        float mouseX = Input.GetAxis("Mouse X") * mouseSensitivityX;
-        float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivityY;
+        // 1. PC MOUSE INPUT
+        if (Cursor.lockState == CursorLockMode.Locked)
+        {
+            lookX += Input.GetAxis("Mouse X") * mouseSensitivityX;
+            lookY += Input.GetAxis("Mouse Y") * mouseSensitivityY;
+        }
 
-        // Unbounded 360 Yaw
-        currentYaw += mouseX;
+        // 2. MOBILE TOUCH SWIPE INPUT
+        if (touchSwipeArea != null)
+        {
+            lookX += touchSwipeArea.TouchDelta.x * touchSensitivityX;
+            lookY += touchSwipeArea.TouchDelta.y * touchSensitivityY;
+        }
 
-        // Clamped Pitch
-        currentPitch = Mathf.Clamp(currentPitch - mouseY, minPitchAngle, maxPitchAngle);
+        currentYaw += lookX;
+        currentPitch = Mathf.Clamp(currentPitch - lookY, minPitchAngle, maxPitchAngle);
     }
 
     private void HandleDynamicFOV()

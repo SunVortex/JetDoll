@@ -5,11 +5,21 @@ using UnityEngine.UI;
 public class FreeFlightJetpack : MonoBehaviour
 {
     [Header("Camera Reference")]
-    [Tooltip("The Main Camera with the FreeFlightCamera script.")]
     public Transform cameraTransform;
 
+    [Header("Mobile Touch Controls (Assign from Canvas)")]
+    [Tooltip("The parent GameObject holding all mobile buttons & joystick (auto-hides on PC!).")]
+    public GameObject mobileUIRoot;
+    [Tooltip("Drag the Dynamic Joystick prefab from your Canvas here.")]
+    public Joystick dynamicJoystick;
+    [Tooltip("Drag the touch Boost button here.")]
+    public MobileTouchButton touchBoostButton;
+    [Tooltip("Drag the touch Up elevation button here.")]
+    public MobileTouchButton touchUpButton;
+    [Tooltip("Drag the touch Down elevation button here.")]
+    public MobileTouchButton touchDownButton;
+
     [Header("Boost Fuel Meter (UI Slider)")]
-    [Tooltip("Drag your vertical UI Slider here.")]
     public Slider boostSlider;
     public float maxBoostDuration = 5.0f;
     public float fuelRechargeRate = 1.2f;
@@ -21,31 +31,22 @@ public class FreeFlightJetpack : MonoBehaviour
     public float verticalClimbSpeed = 12f;
     public float acceleration = 25f;
 
-    [Header("Movement-Facing Rotation (See Player Face!)")]
-    [Tooltip("How fast the character turns to face their WASD movement direction.")]
+    [Header("Movement-Facing Rotation")]
     public float rotationTurnSpeed = 14f;
-    [Tooltip("Forward leaning tilt while flying forward (degrees).")]
     public float forwardPitchAngle = 35f;
 
-    [Header("Idle Hover Floating Bob (No Stale Static Freeze)")]
+    [Header("Idle Hover Floating Bob")]
     public float hoverBobHeight = 0.14f;
     public float hoverBobSpeed = 2.0f;
     public float bobBlendSpeed = 5.0f;
 
     [Header("Thruster Particle Systems & Boost Surge")]
-    [Tooltip("Drag all 4 particle systems here.")]
     public ParticleSystem[] thrusterParticles;
     public float idleHoverEmission = 15f;
     public float cruiseEmission = 40f;
     public float boostEmission = 95f;
-
-    [Tooltip("How much longer the flame shoots backward during turbo boost (multiplier).")]
     public float boostFlameLengthMultiplier = 2.2f;
-
-    [Tooltip("How much thicker/wider the flame expands during turbo boost (multiplier).")]
     public float boostFlameSizeMultiplier = 1.6f;
-
-    [Tooltip("How smoothly the flame swells up and shrinks back down.")]
     public float throttleSpoolSpeed = 7f;
 
     // Public state for camera & effects
@@ -61,13 +62,11 @@ public class FreeFlightJetpack : MonoBehaviour
     private float currentPitch = 0f;
     private float rechargeTimer = 0f;
 
-    // Hover & Rotation state
     private float hoverBaseY = 0f;
     private float currentBobWeight = 0f;
     private float bobTimer = 0f;
     private Quaternion targetFacingRotation;
 
-    // Cached baseline particle scales
     private float[] baseStartSpeeds;
     private float[] baseStartSizes;
 
@@ -86,11 +85,9 @@ public class FreeFlightJetpack : MonoBehaviour
             pilotRagdollRbs = joint.connectedBody.transform.root.GetComponentsInChildren<Rigidbody>();
         }
 
-        // Clean static hover
         jetRb.useGravity = false;
         SetRagdollGravity(false);
 
-        // Initialize fuel
         CurrentFuel = maxBoostDuration;
         if (boostSlider != null)
         {
@@ -102,7 +99,18 @@ public class FreeFlightJetpack : MonoBehaviour
         hoverBaseY = transform.position.y;
         targetFacingRotation = transform.rotation;
 
-        // Cache base particle parameters so multipliers never compound/drift
+        // Auto-configure Mobile UI: show on mobile/tablets, hide on PC standalone builds
+        if (mobileUIRoot != null)
+        {
+#if UNITY_ANDROID || UNITY_IOS
+            mobileUIRoot.SetActive(true);
+#else
+            // In Unity Editor, keep active if you want to test with mouse clicks on touch buttons!
+            mobileUIRoot.SetActive(Application.isMobilePlatform);
+#endif
+        }
+
+        // Cache baseline particle parameters
         if (thrusterParticles != null && thrusterParticles.Length > 0)
         {
             baseStartSpeeds = new float[thrusterParticles.Length];
@@ -115,10 +123,7 @@ public class FreeFlightJetpack : MonoBehaviour
                     baseStartSpeeds[i] = thrusterParticles[i].main.startSpeedMultiplier;
                     baseStartSizes[i] = thrusterParticles[i].main.startSizeMultiplier;
 
-                    if (!thrusterParticles[i].isPlaying)
-                    {
-                        thrusterParticles[i].Play();
-                    }
+                    if (!thrusterParticles[i].isPlaying) thrusterParticles[i].Play();
                 }
             }
         }
@@ -138,9 +143,12 @@ public class FreeFlightJetpack : MonoBehaviour
 
     private void HandleFuelAndBoostInput()
     {
-        bool rmbHeld = Input.GetMouseButton(1);
+        // UNIFIED BOOST: Reads Right Mouse Click on PC OR Mobile Touch Button on Android!
+        bool pcBoost = Input.GetMouseButton(1);
+        bool mobileBoost = touchBoostButton != null && touchBoostButton.IsPressed;
+        bool wantsBoost = pcBoost || mobileBoost;
 
-        if (rmbHeld && CurrentFuel > 0f)
+        if (wantsBoost && CurrentFuel > 0f)
         {
             IsBoosting = true;
             CurrentFuel = Mathf.Max(0f, CurrentFuel - Time.deltaTime);
@@ -166,23 +174,31 @@ public class FreeFlightJetpack : MonoBehaviour
 
     private void HandleFlightPhysics()
     {
-        // 1. GATHER INPUTS
+        // 1. UNIFIED HORIZONTAL INPUT (Keyboard WASD + Dynamic Joystick)
         float hInput = 0f;
         if (Input.GetKey(KeyCode.A)) hInput -= 1f;
         if (Input.GetKey(KeyCode.D)) hInput += 1f;
+        if (dynamicJoystick != null) hInput += dynamicJoystick.Horizontal;
+        hInput = Mathf.Clamp(hInput, -1f, 1f);
 
         float vInput = 0f;
         if (Input.GetKey(KeyCode.S)) vInput -= 1f;
         if (Input.GetKey(KeyCode.W)) vInput += 1f;
+        if (dynamicJoystick != null) vInput += dynamicJoystick.Vertical;
+        vInput = Mathf.Clamp(vInput, -1f, 1f);
 
+        // 2. UNIFIED ELEVATION INPUT (Keyboard Space/Ctrl + Mobile Up/Down Buttons)
         float upInput = 0f;
         if (Input.GetKey(KeyCode.Space)) upInput += 1f;
         if (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.C)) upInput -= 1f;
+        if (touchUpButton != null && touchUpButton.IsPressed) upInput += 1f;
+        if (touchDownButton != null && touchDownButton.IsPressed) upInput -= 1f;
+        upInput = Mathf.Clamp(upInput, -1f, 1f);
 
         bool hasHorizontalInput = Mathf.Abs(hInput) > 0.05f || Mathf.Abs(vInput) > 0.05f;
         IsMoving = hasHorizontalInput || Mathf.Abs(upInput) > 0.05f;
 
-        // 2. CAMERA-RELATIVE DIRECTION VECTORS
+        // 3. CAMERA-RELATIVE DIRECTION VECTORS
         Vector3 camForward = cameraTransform != null ? cameraTransform.forward : Vector3.forward;
         Vector3 camRight = cameraTransform != null ? cameraTransform.right : Vector3.right;
 
@@ -194,11 +210,11 @@ public class FreeFlightJetpack : MonoBehaviour
 
         Vector3 totalMoveDirection = horizontalMoveDir + (Vector3.up * upInput);
 
-        // 3. TARGET SPEED
+        // 4. TARGET SPEED
         float targetSpeed = IsBoosting ? turboBoostSpeed : cruiseSpeed;
         Vector3 targetVelocity = totalMoveDirection * targetSpeed;
 
-        // 4. DYNAMIC HOVER BOB
+        // 5. DYNAMIC HOVER BOB
         if (IsMoving)
         {
             currentBobWeight = Mathf.Lerp(currentBobWeight, 0f, bobBlendSpeed * Time.fixedDeltaTime);
@@ -216,7 +232,7 @@ public class FreeFlightJetpack : MonoBehaviour
             targetVelocity.y += verticalError * 15f * currentBobWeight;
         }
 
-        // 5. SMOOTH VELOCITY LERP
+        // 6. VELOCITY LERP
 #if UNITY_6000_0_OR_NEWER
         Vector3 currentVel = jetRb.linearVelocity;
         jetRb.linearVelocity = Vector3.MoveTowards(currentVel, targetVelocity, acceleration * Time.fixedDeltaTime);
@@ -225,7 +241,7 @@ public class FreeFlightJetpack : MonoBehaviour
         jetRb.velocity = Vector3.MoveTowards(currentVel, targetVelocity, acceleration * Time.fixedDeltaTime);
 #endif
 
-        // 6. MOVEMENT-FACING ROTATION (Allows 360 camera orbit to see player's face!)
+        // 7. MOVEMENT-FACING ROTATION
         if (hasHorizontalInput)
         {
             Quaternion movementLookRotation = Quaternion.LookRotation(horizontalMoveDir, Vector3.up);
@@ -252,27 +268,23 @@ public class FreeFlightJetpack : MonoBehaviour
 
         if (IsBoosting)
         {
-            // TURBO BOOST: Maximum emission + stretched length + expanded thickness!
             targetEmission = boostEmission;
             targetLength = boostFlameLengthMultiplier;
             targetSize = boostFlameSizeMultiplier;
         }
         else if (IsMoving)
         {
-            // CRUISING: Standard flight flame
             targetEmission = cruiseEmission;
             targetLength = 1.0f;
             targetSize = 1.0f;
         }
         else
         {
-            // IDLE HOVER: Soft, short idling flame
             targetEmission = idleHoverEmission;
             targetLength = 0.65f;
             targetSize = 0.8f;
         }
 
-        // Smoothly interpolate all three parameters together
         currentEmission = Mathf.Lerp(currentEmission, targetEmission, throttleSpoolSpeed * Time.deltaTime);
         currentLengthMult = Mathf.Lerp(currentLengthMult, targetLength, throttleSpoolSpeed * Time.deltaTime);
         currentSizeMult = Mathf.Lerp(currentSizeMult, targetSize, throttleSpoolSpeed * Time.deltaTime);
@@ -283,11 +295,9 @@ public class FreeFlightJetpack : MonoBehaviour
             {
                 if (thrusterParticles[i] != null)
                 {
-                    // 1. Emission Count
                     var emission = thrusterParticles[i].emission;
                     emission.rateOverTime = currentEmission;
 
-                    // 2. Flame Length (Start Speed) & Flame Thickness (Start Size)
                     var main = thrusterParticles[i].main;
                     if (baseStartSpeeds != null && i < baseStartSpeeds.Length)
                     {

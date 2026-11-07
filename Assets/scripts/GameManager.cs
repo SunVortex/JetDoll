@@ -13,7 +13,6 @@ public class GameManager : MonoBehaviour
     [Header("Current State")]
     public GameState currentState = GameState.MainMenu;
 
-    // COMPATIBILITY BRIDGE FOR YOUR FRIEND'S SCRIPT (Fixes CS1061):
     public bool isPlaying => currentState == GameState.Playing;
     public bool isGameOver => currentState == GameState.GameOver;
 
@@ -33,6 +32,13 @@ public class GameManager : MonoBehaviour
     public GameObject gameOverPanel;
     public GameObject tutorialPanel;
 
+    [Header("Mobile Touch Controls Root")]
+    [Tooltip("Drag Mobile_Controls_Root from Canvas here. Stays hidden during menus!")]
+    public GameObject mobileControlsRoot;
+
+    [Tooltip("Keep checked to test mobile touch joystick/buttons in the Unity Editor.")]
+    public bool simulateMobileInEditor = true;
+
     [Header("TextMeshPro UI Text Displays")]
     public TextMeshProUGUI livesText;
     public TextMeshProUGUI scoreText;
@@ -48,10 +54,7 @@ public class GameManager : MonoBehaviour
 
     private void Awake()
     {
-        if (Instance == null)
-        {
-            Instance = this;
-        }
+        if (Instance == null) Instance = this;
         else
         {
             Destroy(gameObject);
@@ -71,12 +74,16 @@ public class GameManager : MonoBehaviour
 
         if (skipMenuOnReload)
         {
+            // 1. FAST RESTART: Skip menu, jump straight to gameplay
             skipMenuOnReload = false;
             currentState = GameState.Playing;
 
             if (menuPanel != null) menuPanel.gameObject.SetActive(false);
             if (hudPanel != null) hudPanel.SetActive(true);
             if (cameraController != null) cameraController.enabled = true;
+
+            // Turn ON mobile touch controls during flight
+            SetMobileUIActive(true);
 
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
@@ -85,7 +92,10 @@ public class GameManager : MonoBehaviour
         }
         else
         {
+            // 2. MAIN MENU: Keep mobile controls strictly OFF so buttons work cleanly!
             currentState = GameState.MainMenu;
+
+            SetMobileUIActive(false);
 
             if (menuPanel != null)
             {
@@ -169,8 +179,10 @@ public class GameManager : MonoBehaviour
             cameraController.enabled = true;
         }
 
+        // Gameplay has officially begun: activate HUD & mobile controls!
         currentState = GameState.Playing;
         if (hudPanel != null) hudPanel.SetActive(true);
+        SetMobileUIActive(true);
     }
 
     private IEnumerator SlideMenuRoutine()
@@ -244,6 +256,7 @@ public class GameManager : MonoBehaviour
     {
         currentState = GameState.GameOver;
 
+        // Cut flight engine and let ragdoll drop
         JetpackFlightController player = FindAnyObjectByType<JetpackFlightController>();
         if (player != null)
         {
@@ -252,7 +265,10 @@ public class GameManager : MonoBehaviour
             if (rb != null) rb.useGravity = true;
         }
 
+        // Hide flight controls & HUD on game over
+        SetMobileUIActive(false);
         if (hudPanel != null) hudPanel.SetActive(false);
+
         if (gameOverPanel != null)
         {
             gameOverPanel.SetActive(true);
@@ -268,7 +284,6 @@ public class GameManager : MonoBehaviour
     {
         if (livesText != null)
         {
-            // Standard clean text formatting (no missing Unicode heart symbols)
             livesText.text = $"LIVES: {Mathf.Max(0, currentChances)} / {maxChances}";
         }
 
@@ -282,5 +297,25 @@ public class GameManager : MonoBehaviour
     {
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+    }
+
+    private void SetMobileUIActive(bool active)
+    {
+        if (mobileControlsRoot == null) return;
+
+        if (active)
+        {
+#if UNITY_EDITOR
+            mobileControlsRoot.SetActive(simulateMobileInEditor || Application.isMobilePlatform);
+#elif UNITY_ANDROID || UNITY_IOS
+            mobileControlsRoot.SetActive(true);
+#else
+            mobileControlsRoot.SetActive(false);
+#endif
+        }
+        else
+        {
+            mobileControlsRoot.SetActive(false);
+        }
     }
 }

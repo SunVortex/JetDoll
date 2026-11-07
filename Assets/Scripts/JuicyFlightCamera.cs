@@ -3,28 +3,28 @@ using UnityEngine;
 [RequireComponent(typeof(Camera))]
 public class JuicyFlightCamera : MonoBehaviour
 {
-    [Header("Target Tracking (Dead-Center Behind Jet)")]
-    [Tooltip("Assign Jetpack_Vehicle here.")]
+    [Header("Target Tracking")]
     public Transform target;
-    [Tooltip("Assign Jetpack_Vehicle here.")]
     public JetpackFlightController flightController;
 
-    [Header("Centered Camera Alignment (No Offset)")]
-    [Tooltip("Distance directly behind the jetpack.")]
+    [Header("Mobile Swipe Area Reference")]
+    [Tooltip("Drag Touch_Aim_Area from your Canvas here.")]
+    public TouchAimZone touchAimZone;
+
+    [Header("Centered Camera Alignment")]
     public float distance = 4.2f;
-    [Tooltip("Height aligned right with the jetpack center.")]
     public float height = 0.9f;
-    [Tooltip("Follow speed: 20 gives tight tracking.")]
     public float followSpeed = 20f;
 
-    [Header("Forward Corridor Aim Cone")]
-    [Tooltip("Base track heading (0 = Facing Z-axis forward).")]
+    [Header("Corridor Aim Cone Limits")]
     public float corridorBaseYaw = 0f;
-    [Tooltip("Max degrees to steer left/right.")]
     public float maxAimYawCone = 25f;
-    [Tooltip("Max degrees to steer up/down.")]
     public float maxAimPitchCone = 14f;
+
+    [Header("Input Sensitivity (PC vs Mobile)")]
     public float mouseSensitivity = 2.5f;
+    public float touchSensitivityX = 0.8f;
+    public float touchSensitivityY = 0.7f;
 
     [Header("Speed Juice (Dynamic FOV)")]
     public float normalFOV = 60f;
@@ -39,7 +39,6 @@ public class JuicyFlightCamera : MonoBehaviour
     {
         cam = GetComponent<Camera>();
 
-        // Auto-lock target
         if (target == null)
         {
             JetpackFlightController jet = FindAnyObjectByType<JetpackFlightController>();
@@ -49,17 +48,24 @@ public class JuicyFlightCamera : MonoBehaviour
                 flightController = jet;
             }
         }
+
+#if !UNITY_ANDROID && !UNITY_IOS
+        if (!Application.isMobilePlatform)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
+#endif
     }
 
     private void Update()
     {
-        // CAMERA LOCKOUT: Never capture mouse or rotate during Main Menu or Game Over!
         if (GameManager.Instance != null && GameManager.Instance.currentState != GameManager.GameState.Playing)
         {
             return;
         }
 
-        // In-game cursor unlock with Escape
+#if !UNITY_ANDROID && !UNITY_IOS
         if (Input.GetKeyDown(KeyCode.Escape))
         {
             Cursor.lockState = CursorLockMode.None;
@@ -70,32 +76,39 @@ public class JuicyFlightCamera : MonoBehaviour
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
+#endif
 
-        HandleMouseAim();
+        HandleAimInput();
         HandleDynamicFOV();
     }
 
     private void LateUpdate()
     {
-        if (target == null)
-        {
-            JetpackFlightController jet = FindAnyObjectByType<JetpackFlightController>();
-            if (jet != null) target = jet.transform;
-            else return;
-        }
-
+        if (target == null) return;
         UpdateCameraPosition();
     }
 
-    private void HandleMouseAim()
+    private void HandleAimInput()
     {
-        if (Cursor.lockState != CursorLockMode.Locked) return;
+        float deltaYaw = 0f;
+        float deltaPitch = 0f;
 
-        float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity;
-        float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity;
+        // 1. PC MOUSE INPUT
+        if (Cursor.lockState == CursorLockMode.Locked)
+        {
+            deltaYaw += Input.GetAxis("Mouse X") * mouseSensitivity;
+            deltaPitch += Input.GetAxis("Mouse Y") * mouseSensitivity;
+        }
 
-        currentAimYaw = Mathf.Clamp(currentAimYaw + mouseX, -maxAimYawCone, maxAimYawCone);
-        currentAimPitch = Mathf.Clamp(currentAimPitch - mouseY, -maxAimPitchCone, maxAimPitchCone);
+        // 2. MOBILE TOUCH SWIPE INPUT
+        if (touchAimZone != null)
+        {
+            deltaYaw += touchAimZone.TouchDelta.x * touchSensitivityX;
+            deltaPitch += touchAimZone.TouchDelta.y * touchSensitivityY;
+        }
+
+        currentAimYaw = Mathf.Clamp(currentAimYaw + deltaYaw, -maxAimYawCone, maxAimYawCone);
+        currentAimPitch = Mathf.Clamp(currentAimPitch - deltaPitch, -maxAimPitchCone, maxAimPitchCone);
     }
 
     private void HandleDynamicFOV()
